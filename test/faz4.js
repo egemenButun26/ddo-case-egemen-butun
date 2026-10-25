@@ -40,6 +40,26 @@ function kirp(metin, satirSayisi) {
   return satirlar.slice(-(satirSayisi || 60)).join("\n");
 }
 
+function fonksiyonAraligi(metin, ad) {
+  const satirlar = metin.split(/\r?\n/);
+  const bas = satirlar.findIndex((s) => new RegExp("func\\s+" + ad + "\\s*\\(").test(s));
+  if (bas < 0) return null;
+  let derinlik = 0;
+  let basladi = false;
+  for (let i = bas; i < satirlar.length; i++) {
+    for (const ch of satirlar[i]) {
+      if (ch === "{") {
+        derinlik++;
+        basladi = true;
+      } else if (ch === "}") {
+        derinlik--;
+      }
+    }
+    if (basladi && derinlik === 0) return [bas, i];
+  }
+  return [bas, satirlar.length - 1];
+}
+
 function goDocker(komut, timeout) {
   return calistir(
     "docker",
@@ -99,6 +119,28 @@ function main() {
       for (const yasak of ["float32", "float64", "time.Now("]) {
         assert.ok(!metin.includes(yasak), ad + " icinde yasakli ifade: " + yasak);
       }
+    }
+  });
+
+  ok("a3 dakika->saniye carpmasi yalniz dakikaSaniye icinde", () => {
+    const desen = /\)\s*\*\s*60\b/;
+    for (const ad of KAYNAKLAR) {
+      const metin = fs.readFileSync(path.join(PAKET, ad), "utf8");
+      const satirlar = metin.split(/\r?\n/);
+      let izin = [-1, -1];
+      if (ad === "calc.go") {
+        const aralik = fonksiyonAraligi(metin, "dakikaSaniye");
+        assert.ok(aralik, "calc.go icinde dakikaSaniye bulunamadi");
+        izin = aralik;
+      }
+      satirlar.forEach((satir, i) => {
+        if (desen.test(satir)) {
+          assert.ok(
+            i >= izin[0] && i <= izin[1],
+            `${ad}:${i + 1} dakikaSaniye disinda )*60: ${satir.trim()}`
+          );
+        }
+      });
     }
   });
 

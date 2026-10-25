@@ -55,26 +55,34 @@ type Version struct {
 	Events      []Event
 }
 
+// MaxTariffMinutes: tarife alanlari icin ust sinir; en uzun oturum siniri olan
+// 400 gunle aynidir (400*24*60 = 576000 dakika).
+const MaxTariffMinutes = 400 * 24 * 60
+
 var (
 	ErrNoVersion        = errors.New("gecerli tarife surumu yok")
 	ErrAmbiguousVersion = errors.New("birden fazla gecerli tarife surumu")
 	ErrNegativeDuration = errors.New("cikis giristen once")
 	ErrTooLong          = errors.New("oturum suresi 400 gunden uzun")
+	ErrInvalidTariff    = errors.New("gecersiz tarife")
 )
 
 // Validate: surumun butun alanlarini denetler.
 func (v Version) Validate() error {
 	if v.ID == "" {
-		return errors.New("tarife: ID bos")
+		return fmt.Errorf("%w: tarife: ID bos", ErrInvalidTariff)
 	}
 	if v.Location == nil {
-		return fmt.Errorf("tarife %q: saat dilimi yok", v.ID)
+		return fmt.Errorf("%w: tarife %q: saat dilimi yok", ErrInvalidTariff, v.ID)
 	}
 	if v.FreeMinutes < 0 {
-		return fmt.Errorf("tarife %q: ucretsiz dakika negatif", v.ID)
+		return fmt.Errorf("%w: tarife %q: FreeMinutes negatif (%d)", ErrInvalidTariff, v.ID, v.FreeMinutes)
+	}
+	if v.FreeMinutes > MaxTariffMinutes {
+		return fmt.Errorf("%w: tarife %q: FreeMinutes cok buyuk (%d > %d)", ErrInvalidTariff, v.ID, v.FreeMinutes, MaxTariffMinutes)
 	}
 	if !v.ValidTo.IsZero() && !v.ValidTo.After(v.ValidFrom) {
-		return fmt.Errorf("tarife %q: gecerlilik araligi ters ya da bos", v.ID)
+		return fmt.Errorf("%w: tarife %q: gecerlilik araligi ters ya da bos", ErrInvalidTariff, v.ID)
 	}
 	if err := validateRule(v.ID, "hafta ici", v.Weekday); err != nil {
 		return err
@@ -87,7 +95,7 @@ func (v Version) Validate() error {
 	gorulen := make(map[Date]bool, len(v.Events))
 	for _, e := range v.Events {
 		if gorulen[e.Date] {
-			return fmt.Errorf("tarife %q: ayni tarihe iki etkinlik: %d-%02d-%02d", v.ID, e.Date.Year, e.Date.Month, e.Date.Day)
+			return fmt.Errorf("%w: tarife %q: ayni tarihe iki etkinlik: %d-%02d-%02d", ErrInvalidTariff, v.ID, e.Date.Year, e.Date.Month, e.Date.Day)
 		}
 		gorulen[e.Date] = true
 		if err := validateRule(v.ID, "etkinlik "+e.Name, e.Rule); err != nil {
@@ -99,50 +107,59 @@ func (v Version) Validate() error {
 
 func validateRule(versionID, ad string, r DayRule) error {
 	if len(r.Bands) == 0 {
-		return fmt.Errorf("tarife %q: %s dilimi yok", versionID, ad)
+		return fmt.Errorf("%w: tarife %q: %s dilimi yok", ErrInvalidTariff, versionID, ad)
 	}
 	onceki := 0
 	for i, b := range r.Bands {
 		if b.UnitMinutes <= 0 {
-			return fmt.Errorf("tarife %q: %s birim dakikasi gecersiz", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s UnitMinutes gecersiz (%d)", ErrInvalidTariff, versionID, ad, b.UnitMinutes)
+		}
+		if b.UnitMinutes > MaxTariffMinutes {
+			return fmt.Errorf("%w: tarife %q: %s UnitMinutes cok buyuk (%d > %d)", ErrInvalidTariff, versionID, ad, b.UnitMinutes, MaxTariffMinutes)
 		}
 		if b.UnitPrice < 0 {
-			return fmt.Errorf("tarife %q: %s birim fiyati negatif", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s birim fiyati negatif", ErrInvalidTariff, versionID, ad)
 		}
 		son := i == len(r.Bands)-1
 		if son {
 			if b.UpToMinutes != 0 {
-				return fmt.Errorf("tarife %q: %s son dilim sinirsiz olmali", versionID, ad)
+				return fmt.Errorf("%w: tarife %q: %s son dilim sinirsiz olmali", ErrInvalidTariff, versionID, ad)
 			}
 			continue
 		}
 		if b.UpToMinutes <= 0 {
-			return fmt.Errorf("tarife %q: %s dilim siniri gecersiz", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s UpToMinutes gecersiz (%d)", ErrInvalidTariff, versionID, ad, b.UpToMinutes)
+		}
+		if b.UpToMinutes > MaxTariffMinutes {
+			return fmt.Errorf("%w: tarife %q: %s UpToMinutes cok buyuk (%d > %d)", ErrInvalidTariff, versionID, ad, b.UpToMinutes, MaxTariffMinutes)
 		}
 		if i > 0 && b.UpToMinutes <= onceki {
-			return fmt.Errorf("tarife %q: %s dilimleri artan degil", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s dilimleri artan degil", ErrInvalidTariff, versionID, ad)
 		}
 		onceki = b.UpToMinutes
 	}
 	if n := r.Night; n != nil {
 		if n.StartMinute < 0 || n.StartMinute > 1439 {
-			return fmt.Errorf("tarife %q: %s gece baslangici gecersiz", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s gece baslangici gecersiz", ErrInvalidTariff, versionID, ad)
 		}
 		if n.EndMinute < 0 || n.EndMinute > 1439 {
-			return fmt.Errorf("tarife %q: %s gece bitisi gecersiz", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s gece bitisi gecersiz", ErrInvalidTariff, versionID, ad)
 		}
 		if n.StartMinute == n.EndMinute {
-			return fmt.Errorf("tarife %q: %s gece penceresi bos", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s gece penceresi bos", ErrInvalidTariff, versionID, ad)
 		}
 		if n.UnitMinutes <= 0 {
-			return fmt.Errorf("tarife %q: %s gece birim dakikasi gecersiz", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s Night.UnitMinutes gecersiz (%d)", ErrInvalidTariff, versionID, ad, n.UnitMinutes)
+		}
+		if n.UnitMinutes > MaxTariffMinutes {
+			return fmt.Errorf("%w: tarife %q: %s Night.UnitMinutes cok buyuk (%d > %d)", ErrInvalidTariff, versionID, ad, n.UnitMinutes, MaxTariffMinutes)
 		}
 		if n.UnitPrice < 0 {
-			return fmt.Errorf("tarife %q: %s gece birim fiyati negatif", versionID, ad)
+			return fmt.Errorf("%w: tarife %q: %s gece birim fiyati negatif", ErrInvalidTariff, versionID, ad)
 		}
 	}
 	if r.DailyCap < 0 {
-		return fmt.Errorf("tarife %q: %s gunluk tavan negatif", versionID, ad)
+		return fmt.Errorf("%w: tarife %q: %s gunluk tavan negatif", ErrInvalidTariff, versionID, ad)
 	}
 	return nil
 }
