@@ -122,7 +122,118 @@ func TestDecideEntry(t *testing.T) {
 
 	for _, test := range testler {
 		t.Run(test.ad, func(t *testing.T) {
-			karar, err := DecideEntry(DefaultConfig, olay(Entry, test.plaka), test.open)
+			karar, err := DecideEntry(DefaultConfig, olay(Entry, test.plaka), test.open, nil)
+			if err != nil {
+				t.Fatalf("hata beklenmiyordu: %v", err)
+			}
+			kararKontrol(t, karar, test.bekle)
+		})
+	}
+}
+
+func olayAt(plaka string, at time.Time) Event {
+	ev := olay(Entry, plaka)
+	ev.CapturedAt = at
+	return ev
+}
+
+func TestDecideEntryKapaliOturum(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	pencere := DefaultConfig.DuplicateWindow
+	kapali := ClosedSpan{ID: 9, Plate: "34ABC123", EnteredAt: t0, ExitedAt: t0.Add(40 * time.Minute)}
+
+	testler := []struct {
+		ad     string
+		plaka  string
+		at     time.Time
+		open   []OpenSession
+		closed []ClosedSpan
+		bekle  Decision
+	}{
+		{
+			ad:     "kapanmis oturumun icinde gec giris tekrar giris",
+			plaka:  "34ABC123",
+			at:     t0.Add(2 * time.Second),
+			closed: []ClosedSpan{kapali},
+			bekle:  Decision{Outcome: OutcomeDuplicateEntry, Plate: "34ABC123", SessionID: 9},
+		},
+		{
+			ad:     "giris penceresi siniri dahil tekrar giris",
+			plaka:  "34ABC123",
+			at:     t0.Add(-pencere),
+			closed: []ClosedSpan{kapali},
+			bekle:  Decision{Outcome: OutcomeDuplicateEntry, Plate: "34ABC123", SessionID: 9},
+		},
+		{
+			ad:     "cikis siniri dahil tekrar giris",
+			plaka:  "34ABC123",
+			at:     kapali.ExitedAt,
+			closed: []ClosedSpan{kapali},
+			bekle:  Decision{Outcome: OutcomeDuplicateEntry, Plate: "34ABC123", SessionID: 9},
+		},
+		{
+			ad:     "cikistan bir saniye sonra yeni oturum",
+			plaka:  "34ABC123",
+			at:     kapali.ExitedAt.Add(time.Second),
+			closed: []ClosedSpan{kapali},
+			bekle:  Decision{Outcome: OutcomeOpened, Plate: "34ABC123"},
+		},
+		{
+			ad:     "giris penceresi bir saniye disi yeni oturum",
+			plaka:  "34ABC123",
+			at:     t0.Add(-pencere - time.Second),
+			closed: []ClosedSpan{kapali},
+			bekle:  Decision{Outcome: OutcomeOpened, Plate: "34ABC123"},
+		},
+		{
+			ad:     "U/V karisikligi gec okuma tekrar giris",
+			plaka:  "34ABV123",
+			at:     t0.Add(2 * time.Minute),
+			closed: []ClosedSpan{{ID: 9, Plate: "34ABU123", EnteredAt: t0, ExitedAt: t0.Add(40 * time.Minute)}},
+			bekle:  Decision{Outcome: OutcomeDuplicateEntry, Plate: "34ABV123", SessionID: 9},
+		},
+		{
+			ad:     "tek eksik karakter kapali oturumda inceleme",
+			plaka:  "34ABC12",
+			at:     t0.Add(2 * time.Minute),
+			closed: []ClosedSpan{kapali},
+			bekle: Decision{
+				Outcome: OutcomeReview,
+				Plate:   "34ABC12",
+				Review:  &Review{Reason: ReasonPossibleDuplicateEntry, Confidence: 875, SuggestedSessionID: 9},
+			},
+		},
+		{
+			ad:    "acik oturumdan cok onceki giris gec giris incelemesi",
+			plaka: "34ABC123",
+			at:    t0.Add(-4 * time.Hour),
+			open:  []OpenSession{{ID: 7, Plate: "34ABC123", EnteredAt: t0}},
+			bekle: Decision{
+				Outcome: OutcomeReview,
+				Plate:   "34ABC123",
+				Review:  &Review{Reason: ReasonLateEntry, SuggestedSessionID: 7},
+			},
+		},
+		{
+			ad:    "acik oturum penceresi icinde giris tekrar giris",
+			plaka: "34ABC123",
+			at:    t0.Add(-2 * time.Minute),
+			open:  []OpenSession{{ID: 7, Plate: "34ABC123", EnteredAt: t0}},
+			bekle: Decision{Outcome: OutcomeDuplicateEntry, Plate: "34ABC123", SessionID: 7},
+		},
+		{
+			ad:     "acik oturum eslesmese de kapsayan kapali yakalanir",
+			plaka:  "34ABC123",
+			at:     t0.Add(2 * time.Minute),
+			open:   []OpenSession{{ID: 7, Plate: "06ZZ9999", EnteredAt: t0}},
+			closed: []ClosedSpan{kapali},
+			bekle:  Decision{Outcome: OutcomeDuplicateEntry, Plate: "34ABC123", SessionID: 9},
+		},
+	}
+
+	for _, test := range testler {
+		t.Run(test.ad, func(t *testing.T) {
+			karar, err := DecideEntry(DefaultConfig, olayAt(test.plaka, test.at), test.open, test.closed)
 			if err != nil {
 				t.Fatalf("hata beklenmiyordu: %v", err)
 			}
@@ -132,19 +243,19 @@ func TestDecideEntry(t *testing.T) {
 }
 
 func TestDecideEntryHatalari(t *testing.T) {
-	if _, err := DecideEntry(DefaultConfig, olay(Exit, "34ABC123"), nil); !errors.Is(err, ErrInvalidEvent) {
+	if _, err := DecideEntry(DefaultConfig, olay(Exit, "34ABC123"), nil, nil); !errors.Is(err, ErrInvalidEvent) {
 		t.Fatalf("exit yonunde ErrInvalidEvent bekleniyordu: %v", err)
 	}
 
 	bozuk := olay(Entry, "34ABC123")
 	bozuk.LotID = 0
-	if _, err := DecideEntry(DefaultConfig, bozuk, nil); !errors.Is(err, ErrInvalidEvent) {
+	if _, err := DecideEntry(DefaultConfig, bozuk, nil, nil); !errors.Is(err, ErrInvalidEvent) {
 		t.Fatalf("gecersiz olayda ErrInvalidEvent bekleniyordu: %v", err)
 	}
 
 	bozukAyar := DefaultConfig
 	bozukAyar.DuplicateWindow = 0
-	if _, err := DecideEntry(bozukAyar, olay(Entry, "34ABC123"), nil); err == nil {
+	if _, err := DecideEntry(bozukAyar, olay(Entry, "34ABC123"), nil, nil); err == nil {
 		t.Fatalf("gecersiz ayarda hata bekleniyordu")
 	}
 }

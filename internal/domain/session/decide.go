@@ -29,12 +29,22 @@ const (
 	ReasonInvalidFormat          = "invalid_format"
 	ReasonAmbiguousExact         = "ambiguous_exact"
 	ReasonNoTariff               = "no_tariff"
+	ReasonLateEntry              = "late_entry"
+	ReasonEventConflict          = "event_conflict"
+	ReasonCloseFailed            = "close_failed"
 )
 
 type OpenSession struct {
 	ID        int64
 	Plate     string
 	EnteredAt time.Time
+}
+
+type ClosedSpan struct {
+	ID        int64
+	Plate     string
+	EnteredAt time.Time
+	ExitedAt  time.Time
 }
 
 type ClosedSession struct {
@@ -84,7 +94,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func DecideEntry(c Config, ev Event, open []OpenSession) (Decision, error) {
+func DecideEntry(c Config, ev Event, open []OpenSession, closed []ClosedSpan) (Decision, error) {
 	if err := c.Validate(); err != nil {
 		return Decision{}, err
 	}
@@ -102,22 +112,39 @@ func DecideEntry(c Config, ev Event, open []OpenSession) (Decision, error) {
 	if !plate.ValidTR(p) {
 		return reviewDecision(ReasonInvalidPlate, p, &Review{Reason: ReasonInvalidPlate}), nil
 	}
-	if len(open) == 0 {
-		return Decision{Outcome: OutcomeOpened, Plate: p}, nil
+
+	if len(open) > 0 {
+		res, err := plate.Match(p, openCandidates(open), c.Thresholds)
+		if err != nil {
+			return Decision{}, err
+		}
+		switch res.Decision {
+		case plate.DecisionExact, plate.DecisionAuto:
+			id := candidateID(res.Best)
+			if sess, ok := findOpen(open, id); ok && ev.CapturedAt.Before(sess.EnteredAt.Add(-c.DuplicateWindow)) {
+				return reviewDecision(ReasonLateEntry, p, &Review{Reason: ReasonLateEntry, SuggestedSessionID: id}), nil
+			}
+			return Decision{Outcome: OutcomeDuplicateEntry, Plate: p, SessionID: id}, nil
+		case plate.DecisionReview:
+			return reviewDecision(ReasonPossibleDuplicateEntry, p, reviewFromResult(ReasonPossibleDuplicateEntry, res)), nil
+		}
 	}
 
-	res, err := plate.Match(p, openCandidates(open), c.Thresholds)
-	if err != nil {
-		return Decision{}, err
+	kapsayan := closedCovering(closed, ev.CapturedAt, c.DuplicateWindow)
+	if len(kapsayan) > 0 {
+		res, err := plate.Match(p, closedSpanCandidates(kapsayan), c.Thresholds)
+		if err != nil {
+			return Decision{}, err
+		}
+		switch res.Decision {
+		case plate.DecisionExact, plate.DecisionAuto:
+			return Decision{Outcome: OutcomeDuplicateEntry, Plate: p, SessionID: candidateID(res.Best)}, nil
+		case plate.DecisionReview:
+			return reviewDecision(ReasonPossibleDuplicateEntry, p, reviewFromResult(ReasonPossibleDuplicateEntry, res)), nil
+		}
 	}
-	switch res.Decision {
-	case plate.DecisionExact, plate.DecisionAuto:
-		return Decision{Outcome: OutcomeDuplicateEntry, Plate: p, SessionID: candidateID(res.Best)}, nil
-	case plate.DecisionReview:
-		return reviewDecision(ReasonPossibleDuplicateEntry, p, reviewFromResult(ReasonPossibleDuplicateEntry, res)), nil
-	default:
-		return Decision{Outcome: OutcomeOpened, Plate: p}, nil
-	}
+
+	return Decision{Outcome: OutcomeOpened, Plate: p}, nil
 }
 
 func DecideExit(c Config, ev Event, open []OpenSession, recentClosed []ClosedSession) (Decision, error) {
@@ -226,6 +253,25 @@ func closedCandidates(closed []ClosedSession) []plate.Candidate {
 	out := make([]plate.Candidate, 0, len(closed))
 	for _, s := range closed {
 		out = append(out, plate.Candidate{ID: strconv.FormatInt(s.ID, 10), Plate: s.Plate})
+	}
+	return out
+}
+
+func closedSpanCandidates(closed []ClosedSpan) []plate.Candidate {
+	out := make([]plate.Candidate, 0, len(closed))
+	for _, s := range closed {
+		out = append(out, plate.Candidate{ID: strconv.FormatInt(s.ID, 10), Plate: s.Plate})
+	}
+	return out
+}
+
+func closedCovering(closed []ClosedSpan, at time.Time, pencere time.Duration) []ClosedSpan {
+	out := make([]ClosedSpan, 0, len(closed))
+	for _, s := range closed {
+		if at.Before(s.EnteredAt.Add(-pencere)) || at.After(s.ExitedAt) {
+			continue
+		}
+		out = append(out, s)
 	}
 	return out
 }

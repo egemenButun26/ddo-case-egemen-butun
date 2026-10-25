@@ -32,13 +32,13 @@ func (e Event) Validate() error {
 		return fmt.Errorf("%w: camera_id bos", ErrInvalidEvent)
 	}
 	if len(e.CameraID) > 128 {
-		return fmt.Errorf("%w: camera_id 128 karakterden uzun", ErrInvalidEvent)
+		return fmt.Errorf("%w: camera_id 128 bayttan uzun", ErrInvalidEvent)
 	}
 	if e.CameraEventID == "" {
 		return fmt.Errorf("%w: camera_event_id bos", ErrInvalidEvent)
 	}
 	if len(e.CameraEventID) > 128 {
-		return fmt.Errorf("%w: camera_event_id 128 karakterden uzun", ErrInvalidEvent)
+		return fmt.Errorf("%w: camera_event_id 128 bayttan uzun", ErrInvalidEvent)
 	}
 	if e.Direction != Entry && e.Direction != Exit {
 		return fmt.Errorf("%w: direction", ErrInvalidEvent)
@@ -47,7 +47,7 @@ func (e Event) Validate() error {
 		return fmt.Errorf("%w: captured_at", ErrInvalidEvent)
 	}
 	if len(e.PlateRaw) > 64 {
-		return fmt.Errorf("%w: plate_raw 64 karakterden uzun", ErrInvalidEvent)
+		return fmt.Errorf("%w: plate_raw 64 bayttan uzun", ErrInvalidEvent)
 	}
 	return nil
 }

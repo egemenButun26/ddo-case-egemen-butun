@@ -188,6 +188,53 @@ func TestLockLotNotFound(t *testing.T) {
 	}
 }
 
+func TestLockLotKarsilikliDislar(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	lotID := testdb.NewLot(t, pool, 10)
+
+	tx1, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("ilk islem acilamadi: %v", err)
+	}
+	defer func() { _ = tx1.Rollback(ctx) }()
+	if err := store.LockLot(ctx, tx1, lotID); err != nil {
+		t.Fatalf("ilk kilit alinamadi: %v", err)
+	}
+
+	kazanildi := make(chan error, 1)
+	basladi := make(chan struct{})
+	go func() {
+		tx2, err := pool.Begin(ctx)
+		if err != nil {
+			kazanildi <- err
+			return
+		}
+		defer func() { _ = tx2.Rollback(ctx) }()
+		close(basladi)
+		kazanildi <- store.LockLot(ctx, tx2, lotID)
+	}()
+
+	<-basladi
+	select {
+	case err := <-kazanildi:
+		t.Fatalf("ikinci kilit birinci commit etmeden alindi: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	if err := tx1.Commit(ctx); err != nil {
+		t.Fatalf("ilk islem commit edilemedi: %v", err)
+	}
+	select {
+	case err := <-kazanildi:
+		if err != nil {
+			t.Fatalf("commit sonrasi kilit alinamadi: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("ikinci kilit commit sonrasi 5 sn icinde alinamadi")
+	}
+}
+
 func TestTariffVersionAtBoundaries(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
@@ -314,7 +361,7 @@ func TestEventCameraKeyUnique(t *testing.T) {
 		t.Fatalf("olmayan olay: bulundu=%v hata=%v", bulundu, err)
 	}
 
-	if _, err := store.InsertEvent(ctx, pool, ev, "34ABC34", session.OutcomeOpened, 0); pgKodu(err) != "23505" {
+	if _, err := store.InsertEvent(ctx, pool, ev, "34ABC34", session.OutcomeOpened, 0); !errors.Is(err, store.ErrEventConflict) {
 		t.Fatalf("ayni kamera olayi ikinci kez eklendi: %v", err)
 	}
 
@@ -485,6 +532,60 @@ func TestListOpenAndRecentClosed(t *testing.T) {
 	}
 	if len(acik) != 0 {
 		t.Fatalf("kapandiktan sonra acik oturum sayisi = %d", len(acik))
+	}
+}
+
+func TestListClosedCovering(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	lotID, tarifeID := lotHazirla(t, pool)
+
+	at := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	window := 5 * time.Minute
+
+	ekle := func(plaka string, entered, exited time.Time) int64 {
+		t.Helper()
+		giris := olayEkle(t, pool, lotID, session.Entry, entered)
+		id, err := store.InsertSession(ctx, pool, lotID, plaka, giris, entered, tarifeID)
+		if err != nil {
+			t.Fatalf("%s oturumu acilamadi: %v", plaka, err)
+		}
+		cikis := olayEkle(t, pool, lotID, session.Exit, exited)
+		if err := store.CloseSession(ctx, pool, id, cikis, exited, 100, nil); err != nil {
+			t.Fatalf("%s oturumu kapatilamadi: %v", plaka, err)
+		}
+		return id
+	}
+
+	idA := ekle("34AAA01", at.Add(-time.Hour), at.Add(30*time.Minute))
+	idB := ekle("34AAA02", at.Add(window), at.Add(30*time.Minute))
+	ekle("34AAA03", at.Add(window+time.Second), at.Add(30*time.Minute))
+	idD := ekle("34AAA04", at.Add(-time.Hour), at)
+	ekle("34AAA05", at.Add(-time.Hour), at.Add(-time.Second))
+
+	girisAcik := olayEkle(t, pool, lotID, session.Entry, at.Add(-time.Hour))
+	if _, err := store.InsertSession(ctx, pool, lotID, "34AAA06", girisAcik, at.Add(-time.Hour), tarifeID); err != nil {
+		t.Fatalf("acik oturum acilamadi: %v", err)
+	}
+
+	kapsayan, err := store.ListClosedCovering(ctx, pool, lotID, at, window)
+	if err != nil {
+		t.Fatalf("kapsayan kapali oturumlar okunamadi: %v", err)
+	}
+	if len(kapsayan) != 3 {
+		t.Fatalf("kapsayan oturum sayisi = %d, beklenen 3: %+v", len(kapsayan), kapsayan)
+	}
+	beklenen := []int64{idA, idB, idD}
+	for i, s := range kapsayan {
+		if s.ID != beklenen[i] {
+			t.Fatalf("kapsayan oturum %d = %d, beklenen %d", i, s.ID, beklenen[i])
+		}
+	}
+	if !kapsayan[0].EnteredAt.Equal(at.Add(-time.Hour)) || !kapsayan[0].ExitedAt.Equal(at.Add(30*time.Minute)) {
+		t.Fatalf("kapali oturum alanlari yanlis: %+v", kapsayan[0])
+	}
+	if !kapsayan[1].EnteredAt.Equal(at.Add(window)) || !kapsayan[2].ExitedAt.Equal(at) {
+		t.Fatalf("sinir oturumlari yanlis: %+v / %+v", kapsayan[1], kapsayan[2])
 	}
 }
 

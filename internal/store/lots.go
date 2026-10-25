@@ -23,7 +23,7 @@ func CreateLot(ctx context.Context, q Querier, code, name string, capacity int) 
 // LockLot, otopark satirini islem boyunca kilitler. Yoksa ErrLotNotFound doner.
 func LockLot(ctx context.Context, q Querier, lotID int64) error {
 	var id int64
-	err := q.QueryRow(ctx, `SELECT id FROM lots WHERE id = $1 FOR UPDATE`, lotID).Scan(&id)
+	err := q.QueryRow(ctx, `SELECT id FROM lots WHERE id = $1 FOR NO KEY UPDATE`, lotID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrLotNotFound
 	}

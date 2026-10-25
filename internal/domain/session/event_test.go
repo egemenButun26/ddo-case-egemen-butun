@@ -67,6 +67,32 @@ func TestValidateAlanHatalari(t *testing.T) {
 	}
 }
 
+func TestValidateUzunlukBaytSiniri(t *testing.T) {
+	ev := gecerliOlay()
+	ev.CameraID = strings.Repeat("ğ", 64)
+	if len(ev.CameraID) != 128 {
+		t.Fatalf("test verisi 128 bayt olmali: %d", len(ev.CameraID))
+	}
+	if err := ev.Validate(); err != nil {
+		t.Fatalf("64 Turkce karakter (128 bayt) sinirda gecerli olmali: %v", err)
+	}
+
+	ev.CameraID = strings.Repeat("ğ", 65)
+	err := ev.Validate()
+	if err == nil {
+		t.Fatalf("130 bayt icin hata bekleniyordu")
+	}
+	if !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("ErrInvalidEvent bekleniyordu: %v", err)
+	}
+	if !strings.Contains(err.Error(), "bayt") {
+		t.Fatalf("hata mesaji bayt birimini icermeli: %v", err)
+	}
+	if strings.Contains(err.Error(), "karakter") {
+		t.Fatalf("hata mesaji karakter birimini icermemeli: %v", err)
+	}
+}
+
 func TestValidateUzunlukSinirlari(t *testing.T) {
 	ev := gecerliOlay()
 

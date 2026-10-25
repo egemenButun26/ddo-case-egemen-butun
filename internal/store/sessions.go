@@ -129,6 +129,37 @@ func ListRecentClosed(ctx context.Context, q Querier, lotID int64, around time.T
 	return out, nil
 }
 
+// ListClosedCovering, at anini (pencere payiyla) kapsayan kapali oturumlari doner.
+func ListClosedCovering(ctx context.Context, q Querier, lotID int64, at time.Time, window time.Duration) ([]session.ClosedSpan, error) {
+	rows, err := q.Query(ctx,
+		`SELECT id, plate, entered_at, exited_at FROM sessions
+		 WHERE lot_id = $1 AND status = 'closed'
+		   AND entered_at - make_interval(secs => $3) <= $2
+		   AND exited_at >= $2
+		 ORDER BY id`,
+		lotID, at, window.Seconds(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []session.ClosedSpan
+	for rows.Next() {
+		var s session.ClosedSpan
+		if err := rows.Scan(&s.ID, &s.Plate, &s.EnteredAt, &s.ExitedAt); err != nil {
+			return nil, err
+		}
+		s.EnteredAt = s.EnteredAt.UTC()
+		s.ExitedAt = s.ExitedAt.UTC()
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CloseSession, acik oturumu kapatir. Acik degilse ErrSessionNotOpen.
 func CloseSession(ctx context.Context, q Querier, id, exitEventID int64, exitedAt time.Time, amount tariff.Kurus, quote []byte) error {
 	var quoteArg any

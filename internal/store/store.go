@@ -23,6 +23,8 @@ var (
 	ErrNotFound = errors.New("kayit bulunamadi")
 	// ErrTariffOverlap: tarife gecerlilik araliklari cakisiyor.
 	ErrTariffOverlap = errors.New("tarife gecerlilik araligi cakisiyor")
+	// ErrEventConflict: ayni kamera olay kimligi farkli icerikle gelmis.
+	ErrEventConflict = errors.New("ayni kamera olay kimligi farkli icerikle")
 )
 
 // Querier, pgx.Tx ve *pgxpool.Pool tarafindan karsilanan en kucuk arayuz.
@@ -43,6 +45,9 @@ func mapPgError(err error) error {
 		case "23505":
 			if pgErr.ConstraintName == "sessions_one_open_per_plate" {
 				return ErrOpenSessionExists
+			}
+			if pgErr.ConstraintName == "plate_events_camera_event_uniq" {
+				return ErrEventConflict
 			}
 		case "23P01":
 			if pgErr.ConstraintName == "tariff_versions_no_overlap" {

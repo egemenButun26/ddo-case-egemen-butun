@@ -103,7 +103,7 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event) 
 	if err != nil {
 		return Result{}, err
 	}
-	d, err := session.DecideEntry(s.cfg, ev, open)
+	d, err := session.DecideEntry(s.cfg, ev, open, nil)
 	if err != nil {
 		return Result{}, err
 	}
