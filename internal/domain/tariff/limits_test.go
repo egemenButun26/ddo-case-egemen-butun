@@ -3,6 +3,7 @@ package tariff
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,10 +97,43 @@ func TestValidateSinirlarHaftaSonuEtkinlik(t *testing.T) {
 		v := sinirSurum()
 		v.Weekend = &DayRule{
 			Name:  "hafta_sonu",
-			Bands: []Band{{UnitMinutes: MaxTariffMinutes + 1, UnitPrice: 100}, {UnitMinutes: 60, UnitPrice: 500}},
+			Bands: []Band{{UpToMinutes: 0, UnitMinutes: MaxTariffMinutes + 1, UnitPrice: 100}},
 		}
-		if err := v.Validate(); !errors.Is(err, ErrInvalidTariff) {
+		err := v.Validate()
+		if !errors.Is(err, ErrInvalidTariff) {
 			t.Fatalf("hafta sonu icin ErrInvalidTariff beklenirdi, gelen %v", err)
+		}
+		if !strings.Contains(err.Error(), "UnitMinutes") {
+			t.Fatalf("hata mesajinda UnitMinutes gecmeliydi, gelen %v", err)
+		}
+	})
+
+	t.Run("hafta sonu UnitMinutes tam sinir", func(t *testing.T) {
+		v := sinirSurum()
+		v.Weekend = &DayRule{
+			Name:  "hafta_sonu",
+			Bands: []Band{{UpToMinutes: 0, UnitMinutes: MaxTariffMinutes, UnitPrice: 100}},
+		}
+		if err := v.Validate(); err != nil {
+			t.Fatalf("tam sinir reddedildi: %v", err)
+		}
+	})
+
+	t.Run("etkinlik UnitMinutes", func(t *testing.T) {
+		v := sinirSurum()
+		v.Events = []Event{{
+			Date: Date{Year: 2026, Month: time.November, Day: 1},
+			Name: "sinir",
+			Rule: DayRule{
+				Bands: []Band{{UpToMinutes: 0, UnitMinutes: MaxTariffMinutes + 1, UnitPrice: 100}},
+			},
+		}}
+		err := v.Validate()
+		if !errors.Is(err, ErrInvalidTariff) {
+			t.Fatalf("etkinlik icin ErrInvalidTariff beklenirdi, gelen %v", err)
+		}
+		if !strings.Contains(err.Error(), "UnitMinutes") {
+			t.Fatalf("hata mesajinda UnitMinutes gecmeliydi, gelen %v", err)
 		}
 	})
 
@@ -238,19 +272,80 @@ func TestDakikaSaniye(t *testing.T) {
 	}
 }
 
+func TestBirimTutariBirimSaniyesi(t *testing.T) {
+	for _, birim := range []int64{0, -60} {
+		tutar, err := birimTutari(10, birim, 100)
+		if !errors.Is(err, ErrInvalidTariff) {
+			t.Fatalf("birim %d icin ErrInvalidTariff beklenirdi, gelen %v", birim, err)
+		}
+		if tutar != 0 {
+			t.Fatalf("hata halinde tutar 0 olmali, gelen %v", tutar)
+		}
+	}
+
+	tutar, err := birimTutari(0, 0, 100)
+	if err != nil || tutar != 0 {
+		t.Fatalf("birimTutari(0, 0, 100) = %d, %v; 0, nil beklenirdi", tutar, err)
+	}
+}
+
+func geceKurali(unitMinutes int) Version {
+	loc := time.UTC
+	return Version{
+		ID:        "gece",
+		ValidFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, loc),
+		Location:  loc,
+		Weekday: DayRule{
+			Name:  "hafta_ici",
+			Bands: []Band{{UnitMinutes: 60, UnitPrice: 100}},
+			Night: geceSurum(unitMinutes),
+		},
+	}
+}
+
+func TestGeceYoluSavunmaDerinligi(t *testing.T) {
+	gun := Date{Year: 2026, Month: time.October, Day: 27}
+	bas := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	son := time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC)
+
+	testler := []struct {
+		ad    string
+		birim int
+		hedef error
+	}{
+		{"gece birimi tasmasi", math.MaxInt64/60 + 1, ErrOverflow},
+		{"gece birimi negatif", -60, ErrInvalidTariff},
+	}
+
+	for _, tt := range testler {
+		t.Run(tt.ad, func(t *testing.T) {
+			dc, err := gunHesapla(geceKurali(tt.birim), gun, time.Tuesday, bas, son)
+			if !errors.Is(err, tt.hedef) {
+				t.Fatalf("%v beklenirdi, gelen %v", tt.hedef, err)
+			}
+			if dc.Amount != 0 {
+				t.Fatalf("hata halinde tutar 0 olmali, gelen %v", dc.Amount)
+			}
+		})
+	}
+}
+
 func TestGunduzTutariSavunmaDerinligi(t *testing.T) {
 	testler := []struct {
-		ad   string
-		band Band
+		ad    string
+		band  Band
+		hedef error
 	}{
-		{"cok buyuk UpToMinutes", Band{UpToMinutes: math.MaxInt64 / 30, UnitMinutes: 60, UnitPrice: 100}},
-		{"cok buyuk UnitMinutes", Band{UnitMinutes: math.MaxInt64/60 + 2, UnitPrice: 100}},
+		{"cok buyuk UpToMinutes", Band{UpToMinutes: math.MaxInt64 / 30, UnitMinutes: 60, UnitPrice: 100}, ErrOverflow},
+		{"cok buyuk UnitMinutes", Band{UnitMinutes: math.MaxInt64/60 + 2, UnitPrice: 100}, ErrOverflow},
+		{"negatif UpToMinutes", Band{UpToMinutes: -1, UnitMinutes: 60, UnitPrice: 100}, ErrInvalidTariff},
+		{"negatif UnitMinutes", Band{UnitMinutes: -1, UnitPrice: 100}, ErrInvalidTariff},
 	}
 	for _, tt := range testler {
 		t.Run(tt.ad, func(t *testing.T) {
 			tutar, err := gunduzTutari([]Band{tt.band}, 3*60*60)
-			if err == nil {
-				t.Fatalf("hata beklenirdi, sessiz tutar dondu: %v", tutar)
+			if !errors.Is(err, tt.hedef) {
+				t.Fatalf("%v beklenirdi, gelen %v", tt.hedef, err)
 			}
 			if tutar != 0 {
 				t.Fatalf("hata halinde tutar 0 olmali, gelen %v", tutar)
