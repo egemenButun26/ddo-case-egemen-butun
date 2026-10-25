@@ -71,6 +71,11 @@ func standartTarife(t *testing.T) tariff.Version {
 	return tarifeSurumu(t, benzersiz("tarife"), an(t, "2026-01-01 00:00:00"), nil, 1)
 }
 
+func erkenTarife(t *testing.T) tariff.Version {
+	t.Helper()
+	return tarifeSurumu(t, benzersiz("tarife"), an(t, "2024-01-01 00:00:00"), nil, 1)
+}
+
 func yeniServis(t *testing.T) (*pgxpool.Pool, *sessionsvc.Service) {
 	t.Helper()
 	pool := testdb.Open(t)
@@ -90,6 +95,15 @@ func hazirlaStandart(t *testing.T) (*pgxpool.Pool, *sessionsvc.Service, int64, t
 		t.Fatalf("tarife eklenemedi: %v", err)
 	}
 	return pool, svc, lotID, v
+}
+
+func yeniLotTarifeli(t *testing.T, pool *pgxpool.Pool) int64 {
+	t.Helper()
+	lotID := testdb.NewLot(t, pool, 100)
+	if err := store.InsertTariffVersion(context.Background(), pool, lotID, standartTarife(t)); err != nil {
+		t.Fatalf("tarife eklenemedi: %v", err)
+	}
+	return lotID
 }
 
 func olay(lotID int64, kamera string, yon session.Direction, plaka string, at time.Time) session.Event {
@@ -741,21 +755,429 @@ func TestCokUzunOturum(t *testing.T) {
 	giris := an(t, "2026-10-27 10:00:00")
 	cikis := giris.Add(401 * 24 * time.Hour)
 
+	cikisOlay := olay(lotID, "cam-cikis", session.Exit, "34ABC123", cikis)
+	cikisSonuc, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("bekleyen cikis islenemedi: %v", err)
+	}
+	if cikisSonuc.Outcome != session.OutcomeOrphanExit {
+		t.Fatalf("bekleyen cikis = %q, beklenen orphan_exit", cikisSonuc.Outcome)
+	}
+
+	girisSonuc, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam-giris", session.Entry, "34ABC123", giris))
+	if err != nil {
+		t.Fatalf("giris hata verdi: %v", err)
+	}
+	if girisSonuc.Outcome != session.OutcomeOpened {
+		t.Fatalf("giris sonucu = %q, beklenen opened", girisSonuc.Outcome)
+	}
+	if girisSonuc.ClosedByOrphanExit {
+		t.Fatalf("ClosedByOrphanExit true, beklenen false")
+	}
+
+	s, err := store.GetSession(context.Background(), pool, girisSonuc.SessionID)
+	if err != nil {
+		t.Fatalf("oturum okunamadi: %v", err)
+	}
+	if s.Status != "open" {
+		t.Fatalf("oturum durumu = %q, beklenen open", s.Status)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 2 {
+		t.Fatalf("olay sayisi = %d, beklenen 2", n)
+	}
+	if r := incelemeOku(t, pool, cikisSonuc.EventID); r.Reason != session.ReasonCloseFailed {
+		t.Fatalf("bekleyen cikis nedeni = %q, beklenen %q", r.Reason, session.ReasonCloseFailed)
+	}
+}
+
+func TestGecGirisKapaliOturum(t *testing.T) {
+	pool, svc, lotID, _ := hazirlaStandart(t)
+	giris := an(t, "2026-10-27 10:00:00")
+	cikis := an(t, "2026-10-27 10:40:00")
+
 	if _, err := svc.HandleEvent(context.Background(),
-		olay(lotID, "cam-cikis", session.Exit, "34ABC123", cikis)); err != nil {
+		olay(lotID, "cam1", session.Entry, "34ABC123", giris)); err != nil {
+		t.Fatalf("giris islenemedi: %v", err)
+	}
+	kapanis, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam1", session.Exit, "34ABC123", cikis))
+	if err != nil {
+		t.Fatalf("cikis islenemedi: %v", err)
+	}
+	if kapanis.Outcome != session.OutcomeClosed {
+		t.Fatalf("cikis sonucu = %q, beklenen closed", kapanis.Outcome)
+	}
+	if kapanis.AmountKurus == nil || *kapanis.AmountKurus != 3000 {
+		t.Fatalf("cikis tutari = %v, beklenen 3000", kapanis.AmountKurus)
+	}
+
+	gec := an(t, "2026-10-27 10:00:02")
+	gecSonuc, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam2", session.Entry, "34ABC123", gec))
+	if err != nil {
+		t.Fatalf("gec giris islenemedi: %v", err)
+	}
+	if gecSonuc.Outcome != session.OutcomeDuplicateEntry {
+		t.Fatalf("gec giris sonucu = %q, beklenen duplicate_entry", gecSonuc.Outcome)
+	}
+	if gecSonuc.SessionID != kapanis.SessionID {
+		t.Fatalf("gec giris oturumu = %d, beklenen kapali oturum %d", gecSonuc.SessionID, kapanis.SessionID)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 0 {
+		t.Fatalf("acik oturum sayisi = %d, beklenen 0", n)
+	}
+
+	sonra := gec.Add(48 * time.Hour)
+	sonraSonuc, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam3", session.Exit, "34ABC123", sonra))
+	if err != nil {
+		t.Fatalf("sonraki cikis islenemedi: %v", err)
+	}
+	if sonraSonuc.Outcome != session.OutcomeOrphanExit {
+		t.Fatalf("sonraki cikis sonucu = %q, beklenen orphan_exit", sonraSonuc.Outcome)
+	}
+
+	s, err := store.GetSession(context.Background(), pool, kapanis.SessionID)
+	if err != nil {
+		t.Fatalf("oturum okunamadi: %v", err)
+	}
+	if s.Status != "closed" {
+		t.Fatalf("oturum durumu = %q, beklenen closed", s.Status)
+	}
+	if s.AmountKurus == nil || *s.AmountKurus != 3000 {
+		t.Fatalf("oturum tutari = %v, beklenen 3000", s.AmountKurus)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 1 {
+		t.Fatalf("oturum sayisi = %d, beklenen 1", n)
+	}
+}
+
+func TestGecGirisAcikOturumdanOnce(t *testing.T) {
+	pool, svc, lotID, _ := hazirlaStandart(t)
+	bekleyen := an(t, "2026-10-27 09:00:00")
+
+	if _, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam-cikis", session.Exit, "34ABC123", bekleyen)); err != nil {
 		t.Fatalf("bekleyen cikis islenemedi: %v", err)
 	}
 
-	_, err := svc.HandleEvent(context.Background(),
+	giris := an(t, "2026-10-27 12:00:00")
+	girisSonuc, err := svc.HandleEvent(context.Background(),
 		olay(lotID, "cam-giris", session.Entry, "34ABC123", giris))
-	if !errors.Is(err, tariff.ErrTooLong) {
-		t.Fatalf("hata = %v, beklenen ErrTooLong", err)
+	if err != nil {
+		t.Fatalf("giris islenemedi: %v", err)
+	}
+	if girisSonuc.Outcome != session.OutcomeOpened {
+		t.Fatalf("giris sonucu = %q, beklenen opened", girisSonuc.Outcome)
+	}
+	if girisSonuc.ClosedByOrphanExit {
+		t.Fatalf("09:00 bekleyen cikis 12:00 girisiyle eslesmemeli")
 	}
 
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 0 {
-		t.Fatalf("oturum sayisi = %d, beklenen 0", n)
+	gecSonuc, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam-giris-2", session.Entry, "34ABC123", an(t, "2026-10-27 08:00:00")))
+	if err != nil {
+		t.Fatalf("gec giris islenemedi: %v", err)
+	}
+	if gecSonuc.Outcome != session.OutcomeReview {
+		t.Fatalf("gec giris sonucu = %q, beklenen review", gecSonuc.Outcome)
+	}
+	r := incelemeOku(t, pool, gecSonuc.EventID)
+	if r.Reason != session.ReasonLateEntry {
+		t.Fatalf("gec giris nedeni = %q, beklenen %q", r.Reason, session.ReasonLateEntry)
+	}
+	if r.SuggestedID == nil || *r.SuggestedID != girisSonuc.SessionID {
+		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, girisSonuc.SessionID)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
+	}
+}
+
+func TestOlayCakismasiFarkliOtopark(t *testing.T) {
+	pool, svc := yeniServis(t)
+	lotA := yeniLotTarifeli(t, pool)
+	lotB := yeniLotTarifeli(t, pool)
+	at := an(t, "2026-10-27 10:00:00")
+
+	ev := session.Event{
+		LotID:         lotA,
+		CameraID:      "cam-cakisma",
+		CameraEventID: "ortak-olay",
+		Direction:     session.Entry,
+		PlateRaw:      "34ABC123",
+		CapturedAt:    at,
+	}
+	if _, err := svc.HandleEvent(context.Background(), ev); err != nil {
+		t.Fatalf("lot A girisi islenemedi: %v", err)
+	}
+
+	evB := ev
+	evB.LotID = lotB
+	evB.PlateRaw = "34ABU123"
+	if _, err := svc.HandleEvent(context.Background(), evB); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("lot B hatasi = %v, beklenen ErrEventConflict", err)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotB); n != 0 {
+		t.Fatalf("lot B olay sayisi = %d, beklenen 0", n)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotB); n != 0 {
+		t.Fatalf("lot B oturum sayisi = %d, beklenen 0", n)
+	}
+}
+
+func TestOlayCakismasiFarkliIcerik(t *testing.T) {
+	pool, svc, lotID, _ := hazirlaStandart(t)
+	at := an(t, "2026-10-27 10:00:00")
+	ev := session.Event{
+		LotID:         lotID,
+		CameraID:      "cam-icerik",
+		CameraEventID: "ayni-anahtar",
+		Direction:     session.Entry,
+		PlateRaw:      "34ABC123",
+		CapturedAt:    at,
+	}
+	ilk, err := svc.HandleEvent(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("ilk olay islenemedi: %v", err)
+	}
+	if ilk.Outcome != session.OutcomeOpened {
+		t.Fatalf("ilk sonuc = %q, beklenen opened", ilk.Outcome)
+	}
+
+	yanlisYon := ev
+	yanlisYon.Direction = session.Exit
+	yanlisYon.CapturedAt = at.Add(30 * time.Minute)
+	if _, err := svc.HandleEvent(context.Background(), yanlisYon); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("farkli yon hatasi = %v, beklenen ErrEventConflict", err)
+	}
+
+	yanlisPlaka := ev
+	yanlisPlaka.PlateRaw = "34ABU123"
+	if _, err := svc.HandleEvent(context.Background(), yanlisPlaka); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("farkli plaka hatasi = %v, beklenen ErrEventConflict", err)
+	}
+
+	ayni, err := svc.HandleEvent(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("ayni icerik islenemedi: %v", err)
+	}
+	if !ayni.Replayed {
+		t.Fatalf("ayni icerik Replayed false")
+	}
+	if ayni.EventID != ilk.EventID || ayni.Outcome != ilk.Outcome || ayni.SessionID != ilk.SessionID {
+		t.Fatalf("ayni icerik sonucu farkli: %+v / %+v", ayni, ilk)
 	}
 	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("olay sayisi = %d, beklenen 1", n)
+	}
+}
+
+func TestOlayCakismasiEszamanli(t *testing.T) {
+	pool, svc := yeniServis(t)
+	const tur = 20
+
+	for i := 0; i < tur; i++ {
+		lotA := yeniLotTarifeli(t, pool)
+		lotB := yeniLotTarifeli(t, pool)
+		anahtar := fmt.Sprintf("eszamanli-%d", i)
+		at := an(t, "2026-10-27 10:00:00").Add(time.Duration(i) * time.Minute)
+		evA := session.Event{
+			LotID: lotA, CameraID: "cam-p2", CameraEventID: anahtar,
+			Direction: session.Entry, PlateRaw: "34ABU123", CapturedAt: at,
+		}
+		evB := evA
+		evB.LotID = lotB
+		evB.PlateRaw = "34ABV123"
+
+		olaylar := []session.Event{evA, evB}
+		sonuclar := make([]sessionsvc.Result, 2)
+		hatalar := make([]error, 2)
+		var wg sync.WaitGroup
+		bas := make(chan struct{})
+		for j := range olaylar {
+			wg.Add(1)
+			go func(j int) {
+				defer wg.Done()
+				<-bas
+				sonuclar[j], hatalar[j] = svc.HandleEvent(context.Background(), olaylar[j])
+			}(j)
+		}
+		close(bas)
+		wg.Wait()
+
+		basarili, cakisan := 0, 0
+		for j := range hatalar {
+			switch {
+			case hatalar[j] == nil:
+				basarili++
+				if sonuclar[j].Outcome != session.OutcomeOpened {
+					t.Fatalf("tur %d: basarili sonuc = %q, beklenen opened", i, sonuclar[j].Outcome)
+				}
+			case errors.Is(hatalar[j], sessionsvc.ErrEventConflict):
+				cakisan++
+			default:
+				t.Fatalf("tur %d: beklenmeyen hata: %v", i, hatalar[j])
+			}
+		}
+		if basarili != 1 || cakisan != 1 {
+			t.Fatalf("tur %d: basarili=%d cakisan=%d, beklenen 1/1", i, basarili, cakisan)
+		}
+		if n := say(t, pool,
+			`SELECT count(*) FROM plate_events WHERE camera_id = $1 AND camera_event_id = $2`,
+			"cam-p2", anahtar); n != 1 {
+			t.Fatalf("tur %d: anahtar icin olay sayisi = %d, beklenen 1", i, n)
+		}
+	}
+}
+
+func TestTekrarSonucuTutar(t *testing.T) {
+	_, svc, lotID, _ := hazirlaStandart(t)
+	giris := an(t, "2026-10-27 10:00:00")
+	cikis := an(t, "2026-10-27 11:10:00")
+
+	if _, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam-giris", session.Entry, "34ABC123", giris)); err != nil {
+		t.Fatalf("giris islenemedi: %v", err)
+	}
+	cikisOlay := olay(lotID, "cam-cikis", session.Exit, "34ABC123", cikis)
+	ilk, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("cikis islenemedi: %v", err)
+	}
+	if ilk.Outcome != session.OutcomeClosed {
+		t.Fatalf("cikis sonucu = %q, beklenen closed", ilk.Outcome)
+	}
+	if ilk.AmountKurus == nil {
+		t.Fatalf("ilk sonuc tutari bos")
+	}
+
+	tekrar, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("tekrar cikis islenemedi: %v", err)
+	}
+	if !tekrar.Replayed {
+		t.Fatalf("tekrar Replayed false")
+	}
+	if tekrar.EventID != ilk.EventID {
+		t.Fatalf("tekrar olayi = %d, beklenen %d", tekrar.EventID, ilk.EventID)
+	}
+	if tekrar.AmountKurus == nil || *tekrar.AmountKurus != *ilk.AmountKurus {
+		t.Fatalf("tekrar tutari = %v, beklenen %v", tekrar.AmountKurus, ilk.AmountKurus)
+	}
+}
+
+func TestKapatmaHatasiIncelemeye(t *testing.T) {
+	pool, svc := yeniServis(t)
+	lotID := testdb.NewLot(t, pool, 100)
+	if err := store.InsertTariffVersion(context.Background(), pool, lotID, erkenTarife(t)); err != nil {
+		t.Fatalf("tarife eklenemedi: %v", err)
+	}
+	giris := an(t, "2025-01-01 10:00:00")
+	cikis := an(t, "2026-03-01 10:00:00")
+
+	girisSonuc, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam-giris", session.Entry, "34ABC123", giris))
+	if err != nil {
+		t.Fatalf("giris islenemedi: %v", err)
+	}
+	if girisSonuc.Outcome != session.OutcomeOpened {
+		t.Fatalf("giris sonucu = %q, beklenen opened", girisSonuc.Outcome)
+	}
+
+	cikisOlay := olay(lotID, "cam-cikis", session.Exit, "34ABC123", cikis)
+	sonuc, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("cikis hata verdi: %v", err)
+	}
+	if sonuc.Outcome != session.OutcomeReview {
+		t.Fatalf("cikis sonucu = %q, beklenen review", sonuc.Outcome)
+	}
+	r := incelemeOku(t, pool, sonuc.EventID)
+	if r.Reason != session.ReasonCloseFailed {
+		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonCloseFailed)
+	}
+	if r.SuggestedID == nil || *r.SuggestedID != girisSonuc.SessionID {
+		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, girisSonuc.SessionID)
+	}
+
+	s, err := store.GetSession(context.Background(), pool, girisSonuc.SessionID)
+	if err != nil {
+		t.Fatalf("oturum okunamadi: %v", err)
+	}
+	if s.Status != "open" {
+		t.Fatalf("oturum durumu = %q, beklenen open", s.Status)
+	}
+	kayit, bulundu, err := store.FindEventByCameraKey(context.Background(), pool, cikisOlay.CameraID, cikisOlay.CameraEventID)
+	if err != nil {
+		t.Fatalf("cikis olayi aranamadi: %v", err)
+	}
+	if !bulundu {
+		t.Fatalf("cikis olayi yazilmamis")
+	}
+	if kayit.Outcome != session.OutcomeReview {
+		t.Fatalf("cikis olayi sonucu = %q, beklenen review", kayit.Outcome)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 2 {
+		t.Fatalf("olay sayisi = %d, beklenen 2", n)
+	}
+}
+
+func TestBekleyenCikisKapatmaHatasi(t *testing.T) {
+	pool, svc := yeniServis(t)
+	lotID := testdb.NewLot(t, pool, 100)
+	if err := store.InsertTariffVersion(context.Background(), pool, lotID, erkenTarife(t)); err != nil {
+		t.Fatalf("tarife eklenemedi: %v", err)
+	}
+	cikis := an(t, "2026-03-01 10:00:00")
+	cikisOlay := olay(lotID, "cam-cikis", session.Exit, "34ABC123", cikis)
+	cikisSonuc, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("bekleyen cikis islenemedi: %v", err)
+	}
+	if cikisSonuc.Outcome != session.OutcomeOrphanExit {
+		t.Fatalf("bekleyen cikis = %q, beklenen orphan_exit", cikisSonuc.Outcome)
+	}
+
+	girisSonuc, err := svc.HandleEvent(context.Background(),
+		olay(lotID, "cam-giris", session.Entry, "34ABC123", an(t, "2025-01-01 10:00:00")))
+	if err != nil {
+		t.Fatalf("giris hata verdi: %v", err)
+	}
+	if girisSonuc.Outcome != session.OutcomeOpened {
+		t.Fatalf("giris sonucu = %q, beklenen opened", girisSonuc.Outcome)
+	}
+	if girisSonuc.ClosedByOrphanExit {
+		t.Fatalf("ClosedByOrphanExit true, beklenen false")
+	}
+	if girisSonuc.AmountKurus != nil {
+		t.Fatalf("giris tutari dolu: %v", girisSonuc.AmountKurus)
+	}
+
+	s, err := store.GetSession(context.Background(), pool, girisSonuc.SessionID)
+	if err != nil {
+		t.Fatalf("oturum okunamadi: %v", err)
+	}
+	if s.Status != "open" {
+		t.Fatalf("oturum durumu = %q, beklenen open", s.Status)
+	}
+
+	kayit, bulundu, err := store.FindEventByCameraKey(context.Background(), pool, cikisOlay.CameraID, cikisOlay.CameraEventID)
+	if err != nil {
+		t.Fatalf("bekleyen cikis aranamadi: %v", err)
+	}
+	if !bulundu {
+		t.Fatalf("bekleyen cikis bulunamadi")
+	}
+	if kayit.Outcome != session.OutcomeReview {
+		t.Fatalf("bekleyen cikis sonucu = %q, beklenen review", kayit.Outcome)
+	}
+	r := incelemeOku(t, pool, cikisSonuc.EventID)
+	if r.Reason != session.ReasonCloseFailed {
+		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonCloseFailed)
+	}
+	if r.SuggestedID == nil || *r.SuggestedID != girisSonuc.SessionID {
+		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, girisSonuc.SessionID)
 	}
 }

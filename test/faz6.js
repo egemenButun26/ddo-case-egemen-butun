@@ -33,6 +33,14 @@ const BEKLENEN_TESTLER = [
   "TestFarkliOtoparkAyniPlaka",
   "TestGecersizOlay",
   "TestOlmayanOtopark",
+  "TestGecGirisKapaliOturum",
+  "TestGecGirisAcikOturumdanOnce",
+  "TestOlayCakismasiFarkliOtopark",
+  "TestOlayCakismasiFarkliIcerik",
+  "TestOlayCakismasiEszamanli",
+  "TestTekrarSonucuTutar",
+  "TestKapatmaHatasiIncelemeye",
+  "TestBekleyenCikisKapatmaHatasi",
 ];
 const KAPSAM_ESIK = 70;
 const KAPSAM_ESIK_SERVIS = 75;

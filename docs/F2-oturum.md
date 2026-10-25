@@ -2,7 +2,7 @@
 
 Paket: `internal/domain/session`. Saf Go paketi; veritabanı, HTTP, dosya, ağ, saat ve
 rastgelelik kullanmaz. Kamera olayını ve mevcut oturumları alır, ne yapılacağına karar verir.
-Veritabanı ve servis katmanı sonraki parçada.
+Veritabanı katmanı `internal/store`, servis katmanı `internal/service/sessionsvc` paketindedir.
 
 ## Olay akışı
 
@@ -19,10 +19,12 @@ Veritabanı ve servis katmanı sonraki parçada.
 |---|---|
 | Boş plaka okuması | `review` / `empty_read` |
 | Normalize plaka TR biçiminde değil | `review` / `invalid_plate` |
-| Açık oturum yok | `opened` |
-| Açık oturumlarda tam ya da otomatik eşleşme | `duplicate_entry` (en iyi oturum) |
+| Açık oturumlarda tam/otomatik eşleşme, giriş zamanı pencereden çok önce | `review` / `late_entry` (önerilen oturum) |
+| Açık oturumlarda tam/otomatik eşleşme | `duplicate_entry` (en iyi oturum) |
 | Açık oturumlarda inceleme düzeyinde eşleşme | `review` / `possible_duplicate_entry` |
-| Açık oturumlarda eşleşme yok | `opened` |
+| Giriş anını (pencere payıyla) kapsayan kapanmış oturumda tam/otomatik eşleşme | `duplicate_entry` (kapalı oturum) |
+| Kapsayan kapanmış oturumda inceleme düzeyinde eşleşme | `review` / `possible_duplicate_entry` |
+| Hiçbiri | `opened` |
 
 ## Çıkış karar tablosu
 
@@ -48,9 +50,11 @@ Veritabanı ve servis katmanı sonraki parçada.
 ## İnceleme nedenleri
 
 `empty_read`, `invalid_plate`, `possible_duplicate_entry`, `exit_before_entry`,
-`low_confidence_review`, `ambiguous`, `invalid_format`, `ambiguous_exact`, `no_tariff`.
+`low_confidence_review`, `ambiguous`, `invalid_format`, `ambiguous_exact`, `no_tariff`,
+`late_entry`, `event_conflict`, `close_failed`.
 
-`no_tariff` nedenini servis katmanı koyar; paket sabiti hazırdır.
+`no_tariff`, `close_failed` ve `event_conflict` nedenlerini servis katmanı koyar; paket sabitleri hazırdır.
+`late_entry` kapalı oturuma bağlanamayacak kadar eski bir geç girişte kullanılır.
 
 ## Varsayımlar
 
@@ -59,14 +63,19 @@ Veritabanı ve servis katmanı sonraki parçada.
 - Geçersiz/boş plakalı girişte oturum açılmaz.
 - Tekrar çıkış penceresi 5 dakikadır.
 - Bekleyen çıkış, geç gelen girişle eşleşir.
+- Kapalı bir oturumun aralığını kapsayan geç giriş yeni oturum açmaz; kapanmış oturuma
+  `duplicate_entry` olarak bağlanır. Bu oturuma bağlanamayacak kadar eski geç girişler
+  `late_entry` incelemesine gider.
 
 ## Bilinen sınırlar
 
-- Bekleyen çıkışların zaman aşımı/temizliği bu aşamada yok.
-- İnceleme kuyruğunu çözme akışı bu aşamada yok.
+- Bekleyen çıkışların zaman aşımı/temizliği yok.
+- İnceleme kuyruğunu çözme akışı yok.
 - B/8 gibi biçimi bozan okumalar `plate.Match` gereği otomatik eşleşmez; girişte `invalid_plate`,
   çıkışta `invalid_format` incelemesine düşer.
-- Veritabanı ve servis katmanı sonraki parçada.
+- `MatchOrphanExit` tek adayla çalıştığı için U/V gibi karışıklıkta yanlış araca bağlanabilir.
+- Tarife sürümü satırlarının değişmezliği veritabanında zorlanmıyor (UPDATE fonksiyonu yok).
+- HTTP ucu yok (auth aşamasında).
 
 ## Veritabanı katmanı
 
@@ -94,12 +103,15 @@ denetlenir ve `tariff.ErrInvalidTariff` korunur.
 - `InsertTariffVersion`, `TariffVersionAt`, `GetTariffVersion`: tarife yazma/okuma; an için sürüm yoksa
   `ErrNoTariff`, çakışma varsa `ErrTariffOverlap`, kayıt yoksa `ErrNotFound`.
 - `InsertEvent`, `FindEventByCameraKey`, `SetEventOutcome`, `ListOrphanExits`: kamera olayları.
-- `InsertSession`, `GetSession`, `ListOpenSessions`, `ListRecentClosed`, `CloseSession`, `CountOpenSessions`:
-  oturumlar; ikinci açık oturum `ErrOpenSessionExists`, kapalı/yok oturumu kapatma `ErrSessionNotOpen`.
+- `InsertSession`, `GetSession`, `ListOpenSessions`, `ListRecentClosed`, `ListClosedCovering`,
+  `CloseSession`, `CountOpenSessions`: oturumlar; ikinci açık oturum `ErrOpenSessionExists`,
+  kapalı/yok oturumu kapatma `ErrSessionNotOpen`. `ListClosedCovering` verilen anı (pencere payıyla)
+  kapsayan kapalı oturumları döner.
 - `InsertReview`: inceleme kaydı; 0 öneri kimlikleri SQL NULL olarak yazılır.
 
 Bilinen PostgreSQL kısıt hataları sentinel hataya eşlenir: `23505` + `sessions_one_open_per_plate` →
-`ErrOpenSessionExists`, `23P01` + `tariff_versions_no_overlap` → `ErrTariffOverlap`. Diğer hatalar
+`ErrOpenSessionExists`, `23505` + `plate_events_camera_event_uniq` → `ErrEventConflict`,
+`23P01` + `tariff_versions_no_overlap` → `ErrTariffOverlap`. Diğer hatalar
 olduğu gibi döner (ör. `23514` CHECK ihlali). SQL'lerin tamamı parametrelidir.
 
 ### Test düzeni
@@ -118,39 +130,53 @@ Paket: `internal/service/sessionsvc`. `Service.HandleEvent` bir kamera olayını
 1. `Event.Validate` başarısızsa hiçbir satır yazılmadan hata döner.
 2. Transaction açılır ve `LockLot` ile otopark satırı kilitlenir; otopark yoksa
    `ErrLotNotFound` ile geri alınır. Aynı otoparkın olayları bu kilit sayesinde sırayla işlenir.
-3. `FindEventByCameraKey` ile aynı `(camera_id, camera_event_id)` aranır. Varsa yeni satır
-   yazılmaz; kayıtlı `EventID`, `Outcome`, `SessionID` ve varsa `ReviewID` ile `Replayed=true` döner.
-4. Girişte `DecideEntry`:
+3. `FindEventByCameraKey` ile aynı `(camera_id, camera_event_id)` aranır. Bulunan kaydın
+   `LotID`, `Direction`, `PlateRaw` ve `CapturedAt` alanları gelen olayla aynı değilse hiçbir şey
+   yazılmadan `ErrEventConflict` döner. Aynıysa yeni satır yazılmaz; kayıtlı `EventID`, `Outcome`,
+   `SessionID` ve varsa `ReviewID` ile `Replayed=true` döner. Sonuç `closed` ise `AmountKurus`
+   oturumdan doldurulur. `InsertEvent` sırasında eşzamanlı farklı lot yarışından doğan
+   `plate_events_camera_event_uniq` ihlali de ham `23505` yerine `ErrEventConflict` olur.
+4. Girişte `ListOpenSessions` ve `ListClosedCovering` okunur, `DecideEntry` çağrılır:
    - `opened`: tarife sürümü giriş anında (`TariffVersionAt`) seçilir, olay ve oturum yazılır,
      olayın sonucu oturuma bağlanır. Ardından `ListOrphanExits` + `MatchOrphanExit` ile bekleyen
      çıkış eşleşirse oturum o çıkışla hemen kapatılır (`ClosedByOrphanExit`).
      Tarife sürümü yoksa `no_tariff` incelemesi yazılır.
-   - `duplicate_entry`: olay açık oturuma bağlanır.
-   - `review`: olay `review` sonucuyla ve `review_items` satırıyla yazılır.
+   - `duplicate_entry`: olay açık oturuma ya da girişi kapsayan kapalı oturuma bağlanır.
+   - `review`: olay `review` sonucuyla ve `review_items` satırıyla yazılır (`late_entry` dahil).
 5. Çıkışta `DecideExit` (açık oturumlar ve son `DuplicateWindow` içinde kapananlar):
    `closed` olayı oturumu kapatır, `duplicate_exit` ve `orphan_exit` kendi sonuçlarıyla yazılır,
    `review` inceleme satırı üretir.
 6. Kapatma: oturumun **dondurulmuş** tarife sürümü `GetTariffVersion` ile okunur (çıkış anına göre
    sürüm seçilmez), `tariff.Calculate` ile tutar ve quote JSON üretilir, `CloseSession` yazar.
-   Hesap hatası transaction'ı geri alır; sessiz yanlış tutar yazılmaz.
+   `close` hesaptan önce hiçbir yazma yapmaz. Hesap hatası (`close_failed`) olayı kaybettirmez:
+   - Normal çıkışta çıkış olayı `review`, oturum açık kalır; `review_items` nedeni `close_failed`,
+     önerilen oturum kapatılamayan oturumdur. `HandleEvent` hatasız `review` döner.
+   - Bekleyen çıkışla kapatmada giriş oturumu `opened` kalır; bekleyen çıkış olayı `review` olur ve
+     `close_failed` incelemesi yeni oturumu önerir. `ClosedByOrphanExit=false` döner.
+   - `tariff.Calculate` dışındaki veritabanı hataları eskisi gibi hata olarak döner.
 7. Commit; herhangi bir hata rollback eder. `ErrOpenSessionExists` kilit sayesinde beklenmez;
    yine de oluşursa hata sarılarak döner.
 
 ## Kanıt
 
-- `internal/service/sessionsvc/service_test.go`: gerçek PostgreSQL üzerinde 19 entegrasyon testi
-  (brifteki 15 zorunlu test + `New` hataları, inceleme olayı tekrarı, iptal edilen bağlam ve
-  400 günü aşan oturum). Testler `t.Parallel()` kullanmaz; her test kendi lot'unu ve tarifesini kurar.
+- `internal/service/sessionsvc/service_test.go`: gerçek PostgreSQL üzerinde 27 entegrasyon testi
+  (önceki 19 test + geç giriş, olay çakışması ve kapatma hatası senaryoları). Testler
+  `t.Parallel()` kullanmaz; her test kendi lot'unu ve tarifesini kurar.
 - `test/faz6.js`: geçici Docker ağında `postgres:16-alpine` başlatır, host'a port açmaz,
   `go test -p 1` koşturur; `--- SKIP` yasaktır. Ek kontroller: beklenen testlerin `--- PASS`
   satırları, `internal/store` kapsamı >= %70, `internal/service/sessionsvc` kapsamı >= %75 ve
   iki 50 eşzamanlı testin süresi < 30 sn.
-- Son ölçüm: `internal/store` kapsamı %88,6; `internal/service/sessionsvc` kapsamı %76,7;
-  eşzamanlı test süreleri 0,15 sn ve 0,17 sn; faz6 31 kontrol geçti.
+- Son ölçüm: `internal/store` kapsamı %88,2; `internal/service/sessionsvc` kapsamı %76,5;
+  eşzamanlı test süreleri 0,55 sn ve 0,33 sn; faz6 39 kontrol geçti.
 - Mutasyon kontrolü: `LockLot` kaldırılınca `TestEsZamanli50GirisKarisikOkuma` kırıldı
   (`ErrOpenSessionExists`); kapatmada dondurulmuş sürüm yerine `TariffVersionAt` kullanılınca
   `TestTarifeDondurma` kırıldı (90,00 TL / 4.500 kuruş); `FindEventByCameraKey` kontrolü
   kaldırılınca `TestAyniKameraOlayiTekrar` kırıldı (23505). Her mutasyon geri alındı.
+- Mutasyon kontrolü (geç giriş/çakışma/kapatma hatası parçası): tekrar kontrolündeki içerik
+  karşılaştırması kaldırılınca `TestOlayCakismasiFarkliOtopark` kırıldı (`ErrEventConflict`
+  yerine `<nil>`); `ListClosedCovering` yerine nil verilince `TestGecGirisKapaliOturum` kırıldı
+  (`opened` yerine `duplicate_entry` beklentisi); normal çıkıştaki `close_failed` yolu kaldırılıp
+  hata döndürülünce `TestKapatmaHatasiIncelemeye` kırıldı (`close_failed` hatası). Hepsi geri alındı.
 - Doğrulama: `gofmt -l .` boş, `go vet ./...` temiz, `go test ./...` (veritabanı yokken
   entegrasyon testleri atlanır) yeşil; `node test/faz6.js`, `faz5.js`, `faz4.js`, `faz3.js`,
   `faz1.js` yeşil.

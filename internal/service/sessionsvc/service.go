@@ -17,6 +17,14 @@ import (
 	"parkakil/internal/store"
 )
 
+// ErrEventConflict, ayni kamera olay kimliginin farkli icerikle tekrar
+// gelmesi durumunda doner; API katmani bunu 409'a esleyecek.
+var ErrEventConflict = store.ErrEventConflict
+
+// errCalc, kapatma hesabinda (tariff.Calculate) olusan hatalari veritabani
+// hatalarindan ayirt etmek icin kullanilan ic sentinel hatadir.
+var errCalc = errors.New("kapatma hesabi basarisiz")
+
 type Service struct {
 	pool *pgxpool.Pool
 	cfg  session.Config
@@ -62,6 +70,10 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 		return Result{}, err
 	}
 	if bulundu {
+		if mevcut.LotID != ev.LotID || mevcut.Direction != ev.Direction ||
+			mevcut.PlateRaw != ev.PlateRaw || !mevcut.CapturedAt.Equal(ev.CapturedAt) {
+			return Result{}, fmt.Errorf("%w: %s/%s", ErrEventConflict, ev.CameraID, ev.CameraEventID)
+		}
 		reviewID, err := reviewIDForEvent(ctx, tx, mevcut.ID)
 		if err != nil {
 			return Result{}, err
@@ -72,6 +84,13 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 			SessionID: mevcut.SessionID,
 			ReviewID:  reviewID,
 			Replayed:  true,
+		}
+		if mevcut.Outcome == session.OutcomeClosed {
+			sess, err := store.GetSession(ctx, tx, mevcut.SessionID)
+			if err != nil {
+				return Result{}, err
+			}
+			res.AmountKurus = sess.AmountKurus
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return Result{}, err
@@ -103,7 +122,11 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event) 
 	if err != nil {
 		return Result{}, err
 	}
-	d, err := session.DecideEntry(s.cfg, ev, open, nil)
+	closed, err := store.ListClosedCovering(ctx, tx, ev.LotID, ev.CapturedAt, s.cfg.DuplicateWindow)
+	if err != nil {
+		return Result{}, err
+	}
+	d, err := session.DecideEntry(s.cfg, ev, open, closed)
 	if err != nil {
 		return Result{}, err
 	}
@@ -118,7 +141,7 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event) 
 			return Result{}, err
 		}
 
-		eventID, err := store.InsertEvent(ctx, tx, ev, d.Plate, session.OutcomeOpened, 0)
+		eventID, err := s.insertEvent(ctx, tx, ev, d.Plate, session.OutcomeOpened, 0)
 		if err != nil {
 			return Result{}, err
 		}
@@ -141,9 +164,21 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event) 
 			return Result{}, err
 		}
 		if ok {
-			amount, err := s.close(ctx, tx, sessionID, o.EventID, o.CapturedAt)
-			if err != nil {
-				return Result{}, err
+			amount, cerr := s.close(ctx, tx, sessionID, o.EventID, o.CapturedAt)
+			if cerr != nil {
+				if errors.Is(cerr, errCalc) {
+					if err := store.SetEventOutcome(ctx, tx, o.EventID, session.OutcomeReview, 0); err != nil {
+						return Result{}, err
+					}
+					if _, err := store.InsertReview(ctx, tx, o.EventID, ev.LotID, o.Plate, session.Review{
+						Reason:             session.ReasonCloseFailed,
+						SuggestedSessionID: sessionID,
+					}); err != nil {
+						return Result{}, err
+					}
+					return res, nil
+				}
+				return Result{}, cerr
 			}
 			if err := store.SetEventOutcome(ctx, tx, o.EventID, session.OutcomeClosed, sessionID); err != nil {
 				return Result{}, err
@@ -154,7 +189,7 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event) 
 		return res, nil
 
 	case session.OutcomeDuplicateEntry:
-		eventID, err := store.InsertEvent(ctx, tx, ev, d.Plate, session.OutcomeDuplicateEntry, d.SessionID)
+		eventID, err := s.insertEvent(ctx, tx, ev, d.Plate, session.OutcomeDuplicateEntry, d.SessionID)
 		if err != nil {
 			return Result{}, err
 		}
@@ -184,25 +219,43 @@ func (s *Service) handleExit(ctx context.Context, tx pgx.Tx, ev session.Event) (
 
 	switch d.Outcome {
 	case session.OutcomeClosed:
-		eventID, err := store.InsertEvent(ctx, tx, ev, d.Plate, session.OutcomeClosed, d.SessionID)
+		eventID, err := s.insertEvent(ctx, tx, ev, d.Plate, session.OutcomeClosed, d.SessionID)
 		if err != nil {
 			return Result{}, err
 		}
 		amount, err := s.close(ctx, tx, d.SessionID, eventID, ev.CapturedAt)
 		if err != nil {
+			if errors.Is(err, errCalc) {
+				if err := store.SetEventOutcome(ctx, tx, eventID, session.OutcomeReview, 0); err != nil {
+					return Result{}, err
+				}
+				reviewID, err := store.InsertReview(ctx, tx, eventID, ev.LotID, d.Plate, session.Review{
+					Reason:             session.ReasonCloseFailed,
+					SuggestedSessionID: d.SessionID,
+				})
+				if err != nil {
+					return Result{}, err
+				}
+				return Result{
+					EventID:   eventID,
+					Outcome:   session.OutcomeReview,
+					SessionID: d.SessionID,
+					ReviewID:  reviewID,
+				}, nil
+			}
 			return Result{}, err
 		}
 		return Result{EventID: eventID, Outcome: session.OutcomeClosed, SessionID: d.SessionID, AmountKurus: &amount}, nil
 
 	case session.OutcomeDuplicateExit:
-		eventID, err := store.InsertEvent(ctx, tx, ev, d.Plate, session.OutcomeDuplicateExit, d.SessionID)
+		eventID, err := s.insertEvent(ctx, tx, ev, d.Plate, session.OutcomeDuplicateExit, d.SessionID)
 		if err != nil {
 			return Result{}, err
 		}
 		return Result{EventID: eventID, Outcome: session.OutcomeDuplicateExit, SessionID: d.SessionID}, nil
 
 	case session.OutcomeOrphanExit:
-		eventID, err := store.InsertEvent(ctx, tx, ev, d.Plate, session.OutcomeOrphanExit, 0)
+		eventID, err := s.insertEvent(ctx, tx, ev, d.Plate, session.OutcomeOrphanExit, 0)
 		if err != nil {
 			return Result{}, err
 		}
@@ -216,8 +269,19 @@ func (s *Service) handleExit(ctx context.Context, tx pgx.Tx, ev session.Event) (
 	}
 }
 
+func (s *Service) insertEvent(ctx context.Context, tx pgx.Tx, ev session.Event, plate string, outcome session.Outcome, sessionID int64) (int64, error) {
+	eventID, err := store.InsertEvent(ctx, tx, ev, plate, outcome, sessionID)
+	if err != nil {
+		if errors.Is(err, store.ErrEventConflict) {
+			return 0, fmt.Errorf("%w: %s/%s", ErrEventConflict, ev.CameraID, ev.CameraEventID)
+		}
+		return 0, err
+	}
+	return eventID, nil
+}
+
 func (s *Service) insertReview(ctx context.Context, tx pgx.Tx, ev session.Event, plate string, r session.Review) (Result, error) {
-	eventID, err := store.InsertEvent(ctx, tx, ev, plate, session.OutcomeReview, 0)
+	eventID, err := s.insertEvent(ctx, tx, ev, plate, session.OutcomeReview, 0)
 	if err != nil {
 		return Result{}, err
 	}
@@ -239,7 +303,7 @@ func (s *Service) close(ctx context.Context, tx pgx.Tx, sessionID, exitEventID i
 	}
 	q, err := tariff.Calculate(v, sess.EnteredAt, exitedAt)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", errCalc, err)
 	}
 	quote, err := json.Marshal(q)
 	if err != nil {
