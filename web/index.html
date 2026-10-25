@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ParkAkıl — Sistem durumu</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="kart">
+    <header class="baslik">
+      <h1>ParkAkıl</h1>
+      <p class="altbaslik">Sistem durumu</p>
+    </header>
+
+    <section id="durum" class="durum yukleniyor" aria-live="polite" aria-atomic="true">
+      <span class="nokta" aria-hidden="true"></span>
+      <p id="durum-metni" class="durum-metni">Kontrol ediliyor…</p>
+    </section>
+
+    <dl class="ayrintilar">
+      <div class="satir">
+        <dt>Veritabanı</dt>
+        <dd id="veritabani-metni">—</dd>
+      </div>
+      <div class="satir">
+        <dt>Son kontrol</dt>
+        <dd id="son-kontrol-metni">—</dd>
+      </div>
+    </dl>
+
+    <p id="hata-metni" class="hata" role="alert" hidden></p>
+
+    <button id="yenile-dugmesi" class="dugme" type="button">Yenile</button>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

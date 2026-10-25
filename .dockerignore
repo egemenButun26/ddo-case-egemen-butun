@@ -1,0 +1,7 @@
+.git
+.claude
+node_modules
+*.log
+.env
+test/
+OPENCODE-BRIF.md

@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt kontrolu
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "gofmt uygulanmasi gereken dosyalar:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+
+      - name: testler ve kapsam
+        run: |
+          go test -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tee coverage.txt
+          {
+            echo "### Kapsam"
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: API imaji
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/api.Dockerfile
+          push: false
+          tags: parkakil-api:ci
+
+      - name: Web imaji
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/web.Dockerfile
+          push: false
+          tags: parkakil-web:ci
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ortami hazirla
+        run: cp .env.example .env
+
+      - name: Servisleri kaldir
+        run: docker compose up -d --build --wait
+
+      - name: API saglik kontrolu
+        run: curl -fsS localhost:8080/health
+
+      - name: Web uzerinden API
+        run: curl -fsS localhost:3000/api/health
+
+      - name: Loglar
+        if: always()
+        run: docker compose logs
+
+      - name: Temizlik
+        if: always()
+        run: docker compose down -v --remove-orphans
