@@ -1,0 +1,7 @@
+{
+  "name": "parkakil",
+  "private": true,
+  "scripts": {
+    "test": "node test/faz1.js"
+  }
+}
