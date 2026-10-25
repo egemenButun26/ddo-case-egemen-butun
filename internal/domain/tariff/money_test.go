@@ -40,8 +40,8 @@ func TestMulKurus(t *testing.T) {
 	if _, err := mulKurus(2, Kurus(math.MaxInt64)); !errors.Is(err, ErrOverflow) {
 		t.Fatalf("tasma beklenirdi, gelen %v", err)
 	}
-	if _, err := mulKurus(-1, 10); !errors.Is(err, ErrOverflow) {
-		t.Fatalf("negatif birim icin hata beklenirdi, gelen %v", err)
+	if _, err := mulKurus(-1, 10); !errors.Is(err, ErrNegativeAmount) {
+		t.Fatalf("negatif birim icin ErrNegativeAmount beklenirdi, gelen %v", err)
 	}
 	if got, err := mulKurus(1, Kurus(math.MaxInt64)); err != nil || int64(got) != math.MaxInt64 {
 		t.Fatalf("sinir carpimi = %v, %v", got, err)

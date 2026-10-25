@@ -10,8 +10,12 @@ import (
 // Kurus: kurus cinsinden para. Float hicbir yerde kullanilmaz.
 type Kurus int64
 
-// ErrOverflow: tutar int64 sinirini asiyor.
-var ErrOverflow = errors.New("tutar tasmasi")
+var (
+	// ErrOverflow: tutar int64 sinirini asiyor.
+	ErrOverflow = errors.New("tutar tasmasi")
+	// ErrNegativeAmount: tutar ya da birim negatif.
+	ErrNegativeAmount = errors.New("negatif tutar ya da birim")
+)
 
 // String: "1.234,50 TL" bicimi (binlik nokta, ondalik virgul).
 func (k Kurus) String() string {
@@ -45,7 +49,7 @@ func (k Kurus) String() string {
 // mulKurus: birim sayisi ile birim fiyatini tasma denetimiyle carpar.
 func mulKurus(units int64, price Kurus) (Kurus, error) {
 	if units < 0 || price < 0 {
-		return 0, ErrOverflow
+		return 0, ErrNegativeAmount
 	}
 	if units == 0 || price == 0 {
 		return 0, nil

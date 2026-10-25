@@ -44,6 +44,34 @@ hesap `Calculate` ile yapılır.
 8. Gün tutarı = gündüz + gece. `DailyCap > 0` ve tutar tavandan büyükse tutar tavana çekilir, `Capped = true`.
 9. Toplam = gün tutarlarının toplamı. Tüm çarpma ve toplamalar taşma denetimlidir (`ErrOverflow`).
 
+## Sınırlar ve doğrulama
+
+Dakika alanlarının saniyeye çevrilmesi taşma denetimlidir. Üst sınır
+`MaxTariffMinutes = 400 * 24 * 60 = 576000` dakikadır; en uzun oturum süresi olan 400 günle
+aynı gerekçeyle seçilmiştir. Sınırlar **dahildir**: `== MaxTariffMinutes` geçerli,
+`MaxTariffMinutes + 1` geçersizdir.
+
+`Validate` aşağıdaki alanları üst sınıra karşı denetler:
+
+- `FreeMinutes` ≤ `MaxTariffMinutes` (0 geçerli, negatif geçersiz),
+- her `Band.UnitMinutes` ≤ `MaxTariffMinutes` (0 ve negatif geçersiz),
+- son olmayan her `Band.UpToMinutes` ≤ `MaxTariffMinutes` (0 ve negatif geçersiz; son dilim 0 olmalı),
+- `Night.UnitMinutes` ≤ `MaxTariffMinutes` (0 ve negatif geçersiz).
+
+`Validate`'in döndürdüğü her hata `ErrInvalidTariff` ile sarılır; çağıran
+`errors.Is(err, ErrInvalidTariff)` ile ayırt edebilir. Hata mesajı sorunlu alanı ve değeri söyler.
+Hafta içi, hafta sonu ve etkinlik kurallarının hepsi aynı denetimden geçer.
+
+`Calculate` ayrıca savunma derinliği olarak dört dakika→saniye çevrimini `dakikaSaniye` üzerinden
+yapar. `Validate` atlansa bile taşma sessizce sarmaz:
+
+- `ErrInvalidTariff`: negatif dakika ya da doğrulamayı geçmeyen tarife,
+- `ErrOverflow`: `dakika > math.MaxInt64/60`; çarpım int64 sınırını aşacak,
+- `ErrNegativeAmount`: `mulKurus` negatif birim sayısı ya da negatif fiyat alır.
+
+Sözleşme: **hata varsa tutar yoktur.** `Calculate` hata döndürdüğünde `Quote{}` (`Total == 0`)
+döner; "hata nil + yanlış tutar" durumu oluşmaz.
+
 ## Standart sürüm
 
 Saat dilimi `Europe/Istanbul`, `FreeMinutes = 15`.
@@ -96,5 +124,6 @@ verir. Bitişik aralıklar çakışma değildir; boşlukta `ErrNoVersion`, çak�
   oturumu 1500 + 1500 = 3000 tutar; tek parça hesaplansa 1 birim (1500) olurdu.
 - Sürümler arası geçişte tek sürüm uygulanır; oturumun bir kısmı eski, bir kısmı yeni tarifeyle
   hesaplanmaz.
-- `UpToMinutes` çok büyük değerlerde (int64 dakika sınırına yakın) taşma denetimi yapılmaz; pratikte
-  kullanılan değerler küçüktür.
+- `UpToMinutes`, `UnitMinutes`, `FreeMinutes` ve `Night.UnitMinutes` için üst sınır
+  `MaxTariffMinutes` (576000 dakika) olduğundan int64 taşmasına yol açan aşırı değerler artık
+  `Validate` aşamasında `ErrInvalidTariff` ile reddedilir; `dakikaSaniye` ikinci savunma katmanıdır.

@@ -51,7 +51,10 @@ func Calculate(v Version, entry, exit time.Time) (Quote, error) {
 	}
 	q.DurationSeconds = int64(sure / time.Second)
 
-	ucretsizSaniye := int64(v.FreeMinutes) * 60
+	ucretsizSaniye, err := dakikaSaniye(v.FreeMinutes)
+	if err != nil {
+		return Quote{}, err
+	}
 	if q.DurationSeconds <= ucretsizSaniye {
 		q.Free = true
 		return q, nil
@@ -101,7 +104,11 @@ func gunHesapla(v Version, gun Date, haftaGunu time.Weekday, bas, son time.Time)
 	}
 	var geceTutar Kurus
 	if n := kural.Night; n != nil {
-		geceTutar, err = birimTutari(geceSaniye, int64(n.UnitMinutes)*60, n.UnitPrice)
+		geceBirim, err := dakikaSaniye(n.UnitMinutes)
+		if err != nil {
+			return DayCharge{}, err
+		}
+		geceTutar, err = birimTutari(geceSaniye, geceBirim, n.UnitPrice)
 		if err != nil {
 			return DayCharge{}, err
 		}
@@ -194,7 +201,11 @@ func gunduzTutari(bands []Band, saniye int64) (Kurus, error) {
 		}
 		var sinir int64 = math.MaxInt64
 		if b.UpToMinutes != 0 {
-			sinir = int64(b.UpToMinutes) * 60
+			s, err := dakikaSaniye(b.UpToMinutes)
+			if err != nil {
+				return 0, err
+			}
+			sinir = s
 		}
 		pay := saniye
 		if pay > sinir {
@@ -202,7 +213,11 @@ func gunduzTutari(bands []Band, saniye int64) (Kurus, error) {
 		}
 		pay -= onceki
 		if pay > 0 {
-			tutar, err := birimTutari(pay, int64(b.UnitMinutes)*60, b.UnitPrice)
+			birim, err := dakikaSaniye(b.UnitMinutes)
+			if err != nil {
+				return 0, err
+			}
+			tutar, err := birimTutari(pay, birim, b.UnitPrice)
 			if err != nil {
 				return 0, err
 			}
@@ -219,13 +234,24 @@ func gunduzTutari(bands []Band, saniye int64) (Kurus, error) {
 	return toplam, nil
 }
 
+// dakikaSaniye: dakikayi saniyeye cevirir; tasma ve negatif deger denetimli.
+func dakikaSaniye(m int) (int64, error) {
+	if m < 0 {
+		return 0, fmt.Errorf("%w: negatif dakika (%d)", ErrInvalidTariff, m)
+	}
+	if m > math.MaxInt64/60 {
+		return 0, ErrOverflow
+	}
+	return int64(m) * 60, nil
+}
+
 // birimTutari: her baslayan birim icin ucret.
 func birimTutari(saniye, birimSaniye int64, fiyat Kurus) (Kurus, error) {
 	if saniye <= 0 {
 		return 0, nil
 	}
 	if birimSaniye <= 0 {
-		return 0, fmt.Errorf("tarife: birim saniyesi gecersiz")
+		return 0, fmt.Errorf("%w: tarife: birim saniyesi gecersiz", ErrInvalidTariff)
 	}
 	birim := (saniye + birimSaniye - 1) / birimSaniye
 	return mulKurus(birim, fiyat)
