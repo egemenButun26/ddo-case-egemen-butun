@@ -10,7 +10,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 // Sabit listeler: sonraki brifler yeni paketleri/testleri buraya ekleyecek.
-const PAKETLER = ["./internal/store/..."];
+const PAKETLER = ["./internal/store/...", "./internal/service/..."];
 const BEKLENEN_TESTLER = [
   "TestMigrationDownUp",
   "TestOpenSessionUniquePerPlate",
@@ -18,8 +18,24 @@ const BEKLENEN_TESTLER = [
   "TestTariffOverlap",
   "TestTariffVersionAtBoundaries",
   "TestCloseSession",
+  "TestEsZamanli50GirisAyniPlaka",
+  "TestEsZamanli50GirisKarisikOkuma",
+  "TestAyniKameraOlayiTekrar",
+  "TestSirasizCikisOnceGelir",
+  "TestCikisGiristenOnce",
+  "TestDusukGuvenCikis",
+  "TestBicimsizOkumaCikis",
+  "TestGecersizPlakaGiris",
+  "TestTarifeYokGiris",
+  "TestTarifeDondurma",
+  "TestNormalAkis",
+  "TestTekrarCikis",
+  "TestFarkliOtoparkAyniPlaka",
+  "TestGecersizOlay",
+  "TestOlmayanOtopark",
 ];
 const KAPSAM_ESIK = 70;
+const KAPSAM_ESIK_SERVIS = 75;
 
 const KOK = path.join(__dirname, "..");
 const KOK_MOUNT = KOK.replace(/\\/g, "/");
@@ -53,6 +69,32 @@ function calistir(komut, args, secenek) {
 function kirp(metin, satirSayisi) {
   const satirlar = String(metin || "").trim().split(/\r?\n/);
   return satirlar.slice(-(satirSayisi || 80)).join("\n");
+}
+
+function paketKapsami(profil, onek) {
+  const bloklar = new Map();
+  for (const satir of String(profil || "").split(/\r?\n/)) {
+    if (!satir.startsWith(onek)) continue;
+    const m = satir.match(/^(.+):(\d+\.\d+),(\d+\.\d+) (\d+) (\d+)\s*$/);
+    if (!m) continue;
+    const anahtar = `${m[1]}:${m[2]},${m[3]}`;
+    const stmt = Number(m[4]);
+    const sayi = Number(m[5]);
+    const onceki = bloklar.get(anahtar);
+    if (onceki) {
+      onceki.stmt = Math.max(onceki.stmt, stmt);
+      onceki.sayi = Math.max(onceki.sayi, sayi);
+    } else {
+      bloklar.set(anahtar, { stmt, sayi });
+    }
+  }
+  let toplam = 0;
+  let kapsanan = 0;
+  for (const blok of bloklar.values()) {
+    toplam += blok.stmt;
+    if (blok.sayi > 0) kapsanan += blok.stmt;
+  }
+  return toplam === 0 ? 0 : (kapsanan / toplam) * 100;
 }
 
 function komutHatasi(komut, args, r) {
@@ -171,9 +213,11 @@ async function main() {
     });
 
     const komut = [
-      "go test -p 1 -count=1 -v -coverprofile=/tmp/c.out -coverpkg=./internal/store/...",
+      `go test -p 1 -count=1 -v -coverprofile=/tmp/c.out -coverpkg=${PAKETLER.join(",")}`,
       PAKETLER.join(" "),
       "&& go tool cover -func=/tmp/c.out",
+      "&& echo '---PROFILE---'",
+      "&& cat /tmp/c.out",
     ].join(" ");
 
     const test = calistir(
@@ -225,12 +269,34 @@ async function main() {
       });
     }
 
+    const profilParcalari = cikti.split("---PROFILE---");
+    const profil = profilParcalari.length > 1 ? profilParcalari[1] : "";
+
     ok(`b4 internal/store kapsami >= %${KAPSAM_ESIK}`, () => {
-      const m = cikti.match(/total:\s+\(statements\)\s+([0-9.]+)%/);
-      assert.ok(m, "kapsam satiri okunamadi");
-      const kapsam = Number(m[1]);
-      assert.ok(kapsam >= KAPSAM_ESIK, `kapsam %${kapsam}, esik %${KAPSAM_ESIK}`);
-      console.log(`  bilgi  store kapsami: %${kapsam}`);
+      assert.ok(profil.trim(), "kapsam profili okunamadi");
+      const kapsam = paketKapsami(profil, "parkakil/internal/store/");
+      assert.ok(kapsam >= KAPSAM_ESIK, `store kapsami %${kapsam.toFixed(1)}, esik %${KAPSAM_ESIK}`);
+      console.log(`  bilgi  store kapsami: %${kapsam.toFixed(1)}`);
+    });
+
+    ok(`b5 internal/service/sessionsvc kapsami >= %${KAPSAM_ESIK_SERVIS}`, () => {
+      assert.ok(profil.trim(), "kapsam profili okunamadi");
+      const kapsam = paketKapsami(profil, "parkakil/internal/service/sessionsvc/");
+      assert.ok(
+        kapsam >= KAPSAM_ESIK_SERVIS,
+        `sessionsvc kapsami %${kapsam.toFixed(1)}, esik %${KAPSAM_ESIK_SERVIS}`
+      );
+      console.log(`  bilgi  sessionsvc kapsami: %${kapsam.toFixed(1)}`);
+    });
+
+    ok("b6 eszamanli testler 30 sn'den kisa", () => {
+      for (const ad of ["TestEsZamanli50GirisAyniPlaka", "TestEsZamanli50GirisKarisikOkuma"]) {
+        const m = cikti.match(new RegExp(`--- PASS: ${ad} \\(([0-9.]+)s\\)`));
+        assert.ok(m, ad + " suresi okunamadi");
+        const saniye = Number(m[1]);
+        assert.ok(saniye < 30, `${ad} ${saniye} sn surdu`);
+        console.log(`  bilgi  ${ad}: ${saniye} sn`);
+      }
     });
 
     temizle(container, ag);

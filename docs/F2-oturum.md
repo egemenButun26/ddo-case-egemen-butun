@@ -109,3 +109,48 @@ hata verir, aksi halde testi atlar. Migrasyonlar paket düzeyinde `sync.Once` il
 her test kendi benzersiz lot'uyla yalıtılır. `internal/store/store_test.go` gerçek PostgreSQL ister;
 `test/faz6.js` geçici bir Docker ağında `postgres:16-alpine` başlatır, port açmaz, `go test -p 1`
 koşturur (atlama yasak) ve her durumda konteyner ile ağı siler.
+
+## Servis akışı
+
+Paket: `internal/service/sessionsvc`. `Service.HandleEvent` bir kamera olayını tek bir
+`pgx.ReadCommitted` transaction içinde işler; context zaman aşımına uyar.
+
+1. `Event.Validate` başarısızsa hiçbir satır yazılmadan hata döner.
+2. Transaction açılır ve `LockLot` ile otopark satırı kilitlenir; otopark yoksa
+   `ErrLotNotFound` ile geri alınır. Aynı otoparkın olayları bu kilit sayesinde sırayla işlenir.
+3. `FindEventByCameraKey` ile aynı `(camera_id, camera_event_id)` aranır. Varsa yeni satır
+   yazılmaz; kayıtlı `EventID`, `Outcome`, `SessionID` ve varsa `ReviewID` ile `Replayed=true` döner.
+4. Girişte `DecideEntry`:
+   - `opened`: tarife sürümü giriş anında (`TariffVersionAt`) seçilir, olay ve oturum yazılır,
+     olayın sonucu oturuma bağlanır. Ardından `ListOrphanExits` + `MatchOrphanExit` ile bekleyen
+     çıkış eşleşirse oturum o çıkışla hemen kapatılır (`ClosedByOrphanExit`).
+     Tarife sürümü yoksa `no_tariff` incelemesi yazılır.
+   - `duplicate_entry`: olay açık oturuma bağlanır.
+   - `review`: olay `review` sonucuyla ve `review_items` satırıyla yazılır.
+5. Çıkışta `DecideExit` (açık oturumlar ve son `DuplicateWindow` içinde kapananlar):
+   `closed` olayı oturumu kapatır, `duplicate_exit` ve `orphan_exit` kendi sonuçlarıyla yazılır,
+   `review` inceleme satırı üretir.
+6. Kapatma: oturumun **dondurulmuş** tarife sürümü `GetTariffVersion` ile okunur (çıkış anına göre
+   sürüm seçilmez), `tariff.Calculate` ile tutar ve quote JSON üretilir, `CloseSession` yazar.
+   Hesap hatası transaction'ı geri alır; sessiz yanlış tutar yazılmaz.
+7. Commit; herhangi bir hata rollback eder. `ErrOpenSessionExists` kilit sayesinde beklenmez;
+   yine de oluşursa hata sarılarak döner.
+
+## Kanıt
+
+- `internal/service/sessionsvc/service_test.go`: gerçek PostgreSQL üzerinde 19 entegrasyon testi
+  (brifteki 15 zorunlu test + `New` hataları, inceleme olayı tekrarı, iptal edilen bağlam ve
+  400 günü aşan oturum). Testler `t.Parallel()` kullanmaz; her test kendi lot'unu ve tarifesini kurar.
+- `test/faz6.js`: geçici Docker ağında `postgres:16-alpine` başlatır, host'a port açmaz,
+  `go test -p 1` koşturur; `--- SKIP` yasaktır. Ek kontroller: beklenen testlerin `--- PASS`
+  satırları, `internal/store` kapsamı >= %70, `internal/service/sessionsvc` kapsamı >= %75 ve
+  iki 50 eşzamanlı testin süresi < 30 sn.
+- Son ölçüm: `internal/store` kapsamı %88,6; `internal/service/sessionsvc` kapsamı %76,7;
+  eşzamanlı test süreleri 0,15 sn ve 0,17 sn; faz6 31 kontrol geçti.
+- Mutasyon kontrolü: `LockLot` kaldırılınca `TestEsZamanli50GirisKarisikOkuma` kırıldı
+  (`ErrOpenSessionExists`); kapatmada dondurulmuş sürüm yerine `TariffVersionAt` kullanılınca
+  `TestTarifeDondurma` kırıldı (90,00 TL / 4.500 kuruş); `FindEventByCameraKey` kontrolü
+  kaldırılınca `TestAyniKameraOlayiTekrar` kırıldı (23505). Her mutasyon geri alındı.
+- Doğrulama: `gofmt -l .` boş, `go vet ./...` temiz, `go test ./...` (veritabanı yokken
+  entegrasyon testleri atlanır) yeşil; `node test/faz6.js`, `faz5.js`, `faz4.js`, `faz3.js`,
+  `faz1.js` yeşil.
