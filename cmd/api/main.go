@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"parkakil/internal/domain/session"
 	"parkakil/internal/httpx"
 	"parkakil/internal/service/billingsvc"
+	"parkakil/internal/service/occupancysvc"
 	"parkakil/internal/service/sessionsvc"
 )
 
@@ -62,15 +64,40 @@ func run() int {
 		return 1
 	}
 
+	occupancySvc, err := occupancysvc.New(pool)
+	if err != nil {
+		logger.Error("doluluk servisi olusturulamadi", "hata", err)
+		pool.Close()
+		return 1
+	}
+
+	opsCtx, opsCancel := context.WithCancel(context.Background())
+	var opsWG sync.WaitGroup
+	opsWG.Add(2)
+	go func() {
+		defer opsWG.Done()
+		occupancySvc.RunReleaseLoop(opsCtx, cfg.ReservationReleaseInterval, logger)
+	}()
+	go func() {
+		defer opsWG.Done()
+		occupancySvc.RunDriftLoop(opsCtx, cfg.DriftCheckInterval, logger)
+	}()
+	stopOps := func() {
+		opsCancel()
+		opsWG.Wait()
+	}
+
 	handler := httpx.NewRouter(httpx.Deps{
-		Logger:      logger,
-		Pinger:      pool,
-		PingTimeout: cfg.DBPingTimeout,
-		Events:      svc,
-		CameraKey:   cfg.CameraAPIKey,
-		DB:          pool,
-		SessionTTL:  cfg.AuthSessionTTL,
-		Billing:     billingSvc,
+		Logger:       logger,
+		Pinger:       pool,
+		PingTimeout:  cfg.DBPingTimeout,
+		Events:       svc,
+		CameraKey:    cfg.CameraAPIKey,
+		MetricsToken: cfg.MetricsToken,
+		DB:           pool,
+		SessionTTL:   cfg.AuthSessionTTL,
+		Occupancy:    occupancySvc,
+		Billing:      billingSvc,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -99,6 +126,7 @@ func run() int {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("sunucu hatasi", "hata", err)
 			stopDunning()
+			stopOps()
 			pool.Close()
 			return 1
 		}
@@ -110,6 +138,7 @@ func run() int {
 			logger.Error("duzgun kapanis basarisiz", "hata", err)
 			_ = srv.Close()
 			stopDunning()
+			stopOps()
 			pool.Close()
 			logger.Info("kapandi")
 			return 1
@@ -117,6 +146,7 @@ func run() int {
 	}
 
 	stopDunning()
+	stopOps()
 	pool.Close()
 	logger.Info("kapandi")
 	return 0

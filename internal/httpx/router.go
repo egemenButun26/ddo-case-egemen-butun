@@ -12,18 +12,21 @@ import (
 
 	"parkakil/internal/auth"
 	"parkakil/internal/service/billingsvc"
+	"parkakil/internal/service/occupancysvc"
 	"parkakil/internal/store"
 )
 
 type Deps struct {
-	Logger      *slog.Logger
-	Pinger      Pinger
-	PingTimeout time.Duration
-	Events      EventHandler
-	CameraKey   string
-	DB          store.Querier
-	SessionTTL  time.Duration
-	Billing     *billingsvc.Service
+	Logger       *slog.Logger
+	Pinger       Pinger
+	PingTimeout  time.Duration
+	Events       EventHandler
+	CameraKey    string
+	MetricsToken string
+	DB           store.Querier
+	SessionTTL   time.Duration
+	Occupancy    *occupancysvc.Service
+	Billing      *billingsvc.Service
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -42,10 +45,13 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	deps.Logger = logger
 	deps.SessionTTL = ttl
 
+	metrics := newMetricsRegistry()
+
 	r := chi.NewRouter()
-	r.Use(requestID, accessLog(logger), recoverPanic(logger))
+	r.Use(requestID, accessLog(logger), metrics.middleware(), recoverPanic(logger))
 
 	r.Get("/health", healthHandler(deps.Pinger, deps.PingTimeout, logger))
+	r.Get("/metrics", metricsHandler(deps.MetricsToken, metrics))
 
 	if deps.Events != nil {
 		r.With(requireCameraKey(deps.CameraKey, logger)).Post("/camera-events", cameraEventHandler(deps.Events, logger))
@@ -59,6 +65,8 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 
 	r.With(requireAuth(deps), requireRole(auth.RoleAdmin)).Get("/admin/users", adminUsersHandler(deps))
 	mountBillingRoutes(r, deps)
+
+	mountOpsRoutes(r, deps)
 
 	if extra != nil {
 		extra(r)

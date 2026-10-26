@@ -213,3 +213,44 @@ func TestErrorHidesCameraAPIKey(t *testing.T) {
 		t.Errorf("hata mesaji anahtari icermemeli: %v", err)
 	}
 }
+
+func TestLoadAllowsEmptyMetricsToken(t *testing.T) {
+	cfg, err := Load(env(map[string]string{
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": testCameraAPIKey,
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MetricsToken != "" {
+		t.Errorf("MetricsToken = %q, beklenen bos", cfg.MetricsToken)
+	}
+}
+
+func TestLoadMetricsToken(t *testing.T) {
+	cfg, err := Load(env(map[string]string{
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": testCameraAPIKey,
+		"METRICS_TOKEN":  "olcum-tokeni-0123456789",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MetricsToken != "olcum-tokeni-0123456789" {
+		t.Errorf("MetricsToken = %q", cfg.MetricsToken)
+	}
+}
+
+func TestLoadRejectsShortMetricsToken(t *testing.T) {
+	_, err := Load(env(map[string]string{
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": testCameraAPIKey,
+		"METRICS_TOKEN":  "kisa",
+	}))
+	if err == nil {
+		t.Fatal("kisa METRICS_TOKEN icin hata bekleniyordu")
+	}
+	if !strings.Contains(err.Error(), "METRICS_TOKEN") {
+		t.Errorf("hata degisken adini icermeli: %v", err)
+	}
+}

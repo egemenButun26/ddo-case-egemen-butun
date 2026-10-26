@@ -65,6 +65,43 @@ func InsertCounterDrift(ctx context.Context, q Querier, lotID int64, stored, rec
 	return id, err
 }
 
+// CounterDrift, sayac kaymasi kaydidir.
+type CounterDrift struct {
+	ID         int64
+	LotID      int64
+	Stored     int
+	Recomputed int
+	DetectedAt time.Time
+	Corrected  bool
+}
+
+// ListCounterDrifts, kayma kayitlarini kimlik sirasiyla doner.
+func ListCounterDrifts(ctx context.Context, q Querier, afterID int64, limit int) ([]CounterDrift, error) {
+	rows, err := q.Query(ctx,
+		`SELECT id, lot_id, stored, recomputed, detected_at, corrected
+		 FROM counter_drifts WHERE id > $1 ORDER BY id LIMIT $2`,
+		afterID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []CounterDrift
+	for rows.Next() {
+		var d CounterDrift
+		if err := rows.Scan(&d.ID, &d.LotID, &d.Stored, &d.Recomputed, &d.DetectedAt, &d.Corrected); err != nil {
+			return nil, err
+		}
+		d.DetectedAt = d.DetectedAt.UTC()
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CountEventsByOutcome, otoparkta belirli sonuclu kamera olayi sayisini doner.
 func CountEventsByOutcome(ctx context.Context, q Querier, lotID int64, outcome session.Outcome) (int, error) {
 	var n int
