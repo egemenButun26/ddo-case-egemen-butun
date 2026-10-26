@@ -58,6 +58,7 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	r.Get("/health", healthHandler(deps.Pinger, deps.PingTimeout, logger))
 	r.Get("/_hz/45a6", hzHandler)
 	r.Get("/metrics", metricsHandler(deps.MetricsToken, metrics))
+	r.Get("/openapi.yaml", openapiHandler())
 
 	if deps.Events != nil {
 		r.With(requireCameraKey(deps.CameraKey, logger)).Post("/camera-events", cameraEventHandler(deps.Events, logger))
