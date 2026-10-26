@@ -30,7 +30,7 @@ func (f *fakeEventHandler) HandleEvent(ctx context.Context, ev session.Event) (s
 }
 
 func newEventRouter(h EventHandler) http.Handler {
-	return newRouter(discardLogger(), fakePinger{}, time.Second, h, testKameraAnahtari, nil)
+	return newRouter(Deps{Logger: discardLogger(), Pinger: fakePinger{}, PingTimeout: time.Second, Events: h, CameraKey: testKameraAnahtari}, nil)
 }
 
 func eventBody(t *testing.T, alanlar map[string]any) string {

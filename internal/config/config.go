@@ -14,6 +14,7 @@ type Config struct {
 	LogLevel        slog.Level
 	ShutdownTimeout time.Duration
 	DBPingTimeout   time.Duration
+	AuthSessionTTL  time.Duration
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -23,6 +24,7 @@ func Load(getenv func(string) string) (Config, error) {
 		CameraAPIKey:    getenv("CAMERA_API_KEY"),
 		ShutdownTimeout: 10 * time.Second,
 		DBPingTimeout:   2 * time.Second,
+		AuthSessionTTL:  12 * time.Hour,
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -49,6 +51,10 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.DBPingTimeout, err = parsePositiveDuration("DB_PING_TIMEOUT", getenv("DB_PING_TIMEOUT"), cfg.DBPingTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AuthSessionTTL, err = parsePositiveDuration("AUTH_SESSION_TTL", getenv("AUTH_SESSION_TTL"), cfg.AuthSessionTTL)
 	if err != nil {
 		return Config{}, err
 	}

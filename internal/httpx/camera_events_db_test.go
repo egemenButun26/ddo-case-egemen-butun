@@ -47,7 +47,7 @@ func dbHazirla(t *testing.T) (http.Handler, *pgxpool.Pool, int64) {
 	if err := store.InsertTariffVersion(context.Background(), pool, lotID, v); err != nil {
 		t.Fatalf("tarife eklenemedi: %v", err)
 	}
-	return NewRouter(discardLogger(), pool, time.Second, svc, testKameraAnahtari), pool, lotID
+	return NewRouter(Deps{Logger: discardLogger(), Pinger: pool, PingTimeout: time.Second, Events: svc, CameraKey: testKameraAnahtari, DB: pool, SessionTTL: time.Hour}), pool, lotID
 }
 
 func postEventWithKey(t *testing.T, h http.Handler, body, key string) *httptest.ResponseRecorder {

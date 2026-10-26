@@ -32,7 +32,7 @@ func discardLogger() *slog.Logger {
 
 func newTestRouter(t *testing.T, p Pinger, timeout time.Duration) http.Handler {
 	t.Helper()
-	return NewRouter(discardLogger(), p, timeout, nil, "")
+	return NewRouter(Deps{Logger: discardLogger(), Pinger: p, PingTimeout: timeout})
 }
 
 func doRequest(t *testing.T, h http.Handler, method, path string, header http.Header) *httptest.ResponseRecorder {
@@ -153,7 +153,7 @@ func TestMethodNotAllowed(t *testing.T) {
 }
 
 func TestPanicRecovered(t *testing.T) {
-	h := newRouter(discardLogger(), fakePinger{}, time.Second, nil, "", func(r chi.Router) {
+	h := newRouter(Deps{Logger: discardLogger(), Pinger: fakePinger{}, PingTimeout: time.Second}, func(r chi.Router) {
 		r.Get("/panic", func(http.ResponseWriter, *http.Request) {
 			panic("beklenmeyen durum")
 		})

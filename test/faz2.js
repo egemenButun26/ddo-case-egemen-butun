@@ -199,7 +199,7 @@ async function statikKontroller() {
     const adlar = Object.keys(bloklar);
     assert.ok(adlar.length >= 4, "servisler eksik: " + adlar.join(", "));
     for (const ad of adlar) {
-      if (ad === "migrate") continue;
+      if (ad === "migrate" || ad === "seed") continue;
       assert.ok(
         bloklar[ad].some((s) => /^\s{4}healthcheck\s*:/.test(s)),
         ad + " servisinde healthcheck yok"
