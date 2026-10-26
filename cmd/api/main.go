@@ -18,6 +18,7 @@ import (
 	"parkakil/internal/config"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/httpx"
+	"parkakil/internal/service/billingsvc"
 	"parkakil/internal/service/sessionsvc"
 )
 
@@ -54,6 +55,13 @@ func run() int {
 		return 1
 	}
 
+	billingSvc, err := billingsvc.New(pool)
+	if err != nil {
+		logger.Error("faturalama servisi olusturulamadi", "hata", err)
+		pool.Close()
+		return 1
+	}
+
 	handler := httpx.NewRouter(httpx.Deps{
 		Logger:      logger,
 		Pinger:      pool,
@@ -62,6 +70,7 @@ func run() int {
 		CameraKey:   cfg.CameraAPIKey,
 		DB:          pool,
 		SessionTTL:  cfg.AuthSessionTTL,
+		Billing:     billingSvc,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -71,6 +80,9 @@ func run() int {
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
+	dunningCtx, stopDunning := context.WithCancel(context.Background())
+	go dunningLoop(dunningCtx, logger, billingSvc, cfg.DunningInterval)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -86,6 +98,7 @@ func run() int {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("sunucu hatasi", "hata", err)
+			stopDunning()
 			pool.Close()
 			return 1
 		}
@@ -96,15 +109,51 @@ func run() int {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("duzgun kapanis basarisiz", "hata", err)
 			_ = srv.Close()
+			stopDunning()
 			pool.Close()
 			logger.Info("kapandi")
 			return 1
 		}
 	}
 
+	stopDunning()
 	pool.Close()
 	logger.Info("kapandi")
 	return 0
+}
+
+// dunningLoop, vadesi gelen oturum sonu fatura tekrar denemelerini listeler.
+// Gercek tahsilat bir saglayiciya baglanmaz; deneme sonucu
+// POST /invoices/{id}/payment-attempts ucuyla kaydedilir.
+func dunningLoop(ctx context.Context, logger *slog.Logger, svc *billingsvc.Service, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	logger.Info("dunning dongusu basladi", "aralik", interval.String())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			invoices, err := svc.DueRetries(ctx, time.Now())
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Error("dunning listesi okunamadi", "hata", err)
+				}
+				continue
+			}
+			for _, inv := range invoices {
+				logger.Info("dunning tekrar denemesi bekliyor",
+					"fatura_id", inv.ID,
+					"abonelik_id", inv.SubscriptionID,
+					"deneme", inv.Attempts,
+					"sonraki_deneme", inv.NextRetryAt,
+				)
+			}
+		}
+	}
 }
 
 func runHealthcheck(cfg config.Config) int {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -76,6 +77,31 @@ func InsertPlan(ctx context.Context, q Querier, code string, lotID int64, price 
 	return id, nil
 }
 
+func ListPlans(ctx context.Context, q Querier) ([]Plan, error) {
+	rows, err := q.Query(ctx,
+		`SELECT id, code, lot_id, monthly_price_kurus, active FROM plans ORDER BY id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	plans := []Plan{}
+	for rows.Next() {
+		var p Plan
+		var price int64
+		if err := rows.Scan(&p.ID, &p.Code, &p.LotID, &price, &p.Active); err != nil {
+			return nil, err
+		}
+		p.MonthlyPrice = tariff.Kurus(price)
+		plans = append(plans, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return plans, nil
+}
+
 func GetPlanByCode(ctx context.Context, q Querier, code string) (Plan, error) {
 	var p Plan
 	var price int64
@@ -125,11 +151,15 @@ func LockSubscription(ctx context.Context, q Querier, id int64) (Subscription, e
 }
 
 func InsertSubscription(ctx context.Context, q Querier, planID int64, plate string, periodStart, periodEnd time.Time) (int64, error) {
+	return InsertSubscriptionWithUser(ctx, q, planID, plate, nil, periodStart, periodEnd)
+}
+
+func InsertSubscriptionWithUser(ctx context.Context, q Querier, planID int64, plate string, userID *int64, periodStart, periodEnd time.Time) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO subscriptions (plan_id, plate, status, current_period_start, current_period_end)
-		 VALUES ($1, $2, 'active', $3, $4) RETURNING id`,
-		planID, plate, dateText(periodStart), dateText(periodEnd),
+		`INSERT INTO subscriptions (plan_id, plate, user_id, status, current_period_start, current_period_end)
+		 VALUES ($1, $2, $3, 'active', $4, $5) RETURNING id`,
+		planID, plate, userID, dateText(periodStart), dateText(periodEnd),
 	).Scan(&id)
 	if isConstraint(err, "subscriptions_one_active_per_plate_lot") {
 		return 0, ErrSubscriptionExists
@@ -182,9 +212,13 @@ func SetSubscriptionPeriod(ctx context.Context, q Querier, id int64, periodStart
 	return nil
 }
 
+// ActiveSubscriptionsForPeriod, dönem faturası alacak abonelikleri döndürür.
+// past_due abonelikler de faturalanır; suspended/cancelled faturalanmaz.
+// current_period_start <= periodStart koşulu, askıdayken kaçırılan dönemin
+// yeniden active olunca ilk dönem sonu çalışmasında faturalanmasını sağlar.
 func ActiveSubscriptionsForPeriod(ctx context.Context, q Querier, periodStart time.Time) ([]Subscription, error) {
 	rows, err := q.Query(ctx,
-		subscriptionSelect+` WHERE s.status = 'active' AND s.current_period_start = $1
+		subscriptionSelect+` WHERE s.status IN ('active','past_due') AND s.current_period_start <= $1
 		 ORDER BY s.id FOR UPDATE OF s`,
 		dateText(periodStart),
 	)
@@ -194,6 +228,56 @@ func ActiveSubscriptionsForPeriod(ctx context.Context, q Querier, periodStart ti
 	defer rows.Close()
 
 	var subs []Subscription
+	for rows.Next() {
+		s, err := scanSubscription(rows)
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return subs, nil
+}
+
+type SubscriptionFilter struct {
+	Plate       *string
+	OwnerUserID *int64
+	AfterID     int64
+	Limit       int
+}
+
+func ListSubscriptions(ctx context.Context, q Querier, f SubscriptionFilter) ([]Subscription, error) {
+	query := subscriptionSelect + ` WHERE TRUE`
+	args := []any{}
+	if f.Plate != nil && f.OwnerUserID != nil {
+		args = append(args, *f.OwnerUserID)
+		ownerArg := strconv.Itoa(len(args))
+		args = append(args, *f.Plate)
+		plateArg := strconv.Itoa(len(args))
+		query += ` AND (s.user_id = $` + ownerArg + ` OR s.plate = $` + plateArg + `)`
+	} else if f.Plate != nil {
+		args = append(args, *f.Plate)
+		query += ` AND s.plate = $` + strconv.Itoa(len(args))
+	} else if f.OwnerUserID != nil {
+		args = append(args, *f.OwnerUserID)
+		query += ` AND s.user_id = $` + strconv.Itoa(len(args))
+	}
+	if f.AfterID > 0 {
+		args = append(args, f.AfterID)
+		query += ` AND s.id > $` + strconv.Itoa(len(args))
+	}
+	args = append(args, f.Limit)
+	query += ` ORDER BY s.id LIMIT $` + strconv.Itoa(len(args))
+
+	rows, err := q.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	subs := []Subscription{}
 	for rows.Next() {
 		s, err := scanSubscription(rows)
 		if err != nil {

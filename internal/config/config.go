@@ -15,6 +15,7 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	DBPingTimeout   time.Duration
 	AuthSessionTTL  time.Duration
+	DunningInterval time.Duration
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -25,6 +26,7 @@ func Load(getenv func(string) string) (Config, error) {
 		ShutdownTimeout: 10 * time.Second,
 		DBPingTimeout:   2 * time.Second,
 		AuthSessionTTL:  12 * time.Hour,
+		DunningInterval: time.Minute,
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -55,6 +57,10 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AuthSessionTTL, err = parsePositiveDuration("AUTH_SESSION_TTL", getenv("AUTH_SESSION_TTL"), cfg.AuthSessionTTL)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.DunningInterval, err = parsePositiveDuration("DUNNING_INTERVAL", getenv("DUNNING_INTERVAL"), cfg.DunningInterval)
 	if err != nil {
 		return Config{}, err
 	}

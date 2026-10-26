@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"parkakil/internal/domain/tariff"
 )
 
@@ -92,6 +94,32 @@ func SucceededPaymentsOnDay(ctx context.Context, q Querier, start, end time.Time
 		return nil, err
 	}
 	return txns, nil
+}
+
+type ReconciliationRecord struct {
+	OurTotal      tariff.Kurus
+	ProviderTotal tariff.Kurus
+	Diff          tariff.Kurus
+	Details       []byte
+}
+
+func GetReconciliationReport(ctx context.Context, q Querier, day time.Time) (ReconciliationRecord, error) {
+	var rec ReconciliationRecord
+	var ourTotal, providerTotal, diff int64
+	err := q.QueryRow(ctx,
+		`SELECT our_total, provider_total, diff, details FROM reconciliation_reports WHERE day = $1`,
+		dateText(day),
+	).Scan(&ourTotal, &providerTotal, &diff, &rec.Details)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReconciliationRecord{}, ErrNotFound
+	}
+	if err != nil {
+		return ReconciliationRecord{}, err
+	}
+	rec.OurTotal = tariff.Kurus(ourTotal)
+	rec.ProviderTotal = tariff.Kurus(providerTotal)
+	rec.Diff = tariff.Kurus(diff)
+	return rec, nil
 }
 
 func SaveReconciliationReport(ctx context.Context, q Querier, day time.Time, ourTotal, providerTotal, diff tariff.Kurus, details []byte) error {

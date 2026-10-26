@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -32,6 +33,8 @@ func TestSeedIdempotent(t *testing.T) {
 	users := sayim(t, pool, `SELECT count(*) FROM users`)
 	lots := sayim(t, pool, `SELECT count(*) FROM lots`)
 	tariffs := sayim(t, pool, `SELECT count(*) FROM tariff_versions`)
+	plans := sayim(t, pool, `SELECT count(*) FROM plans`)
+	subs := sayim(t, pool, `SELECT count(*) FROM subscriptions`)
 
 	if err := seed(ctx, pool, seedTestParola); err != nil {
 		t.Fatalf("ikinci seed: %v", err)
@@ -44,6 +47,12 @@ func TestSeedIdempotent(t *testing.T) {
 	}
 	if got := sayim(t, pool, `SELECT count(*) FROM tariff_versions`); got != tariffs {
 		t.Fatalf("tarife sayisi degisti: %d -> %d", tariffs, got)
+	}
+	if got := sayim(t, pool, `SELECT count(*) FROM plans`); got != plans {
+		t.Fatalf("plan sayisi degisti: %d -> %d", plans, got)
+	}
+	if got := sayim(t, pool, `SELECT count(*) FROM subscriptions`); got != subs {
+		t.Fatalf("abonelik sayisi degisti: %d -> %d", subs, got)
 	}
 }
 
@@ -122,6 +131,48 @@ func TestSeedRolesAndLots(t *testing.T) {
 	}
 	if !auth.CheckPassword(user.PasswordHash, seedTestParola) {
 		t.Fatal("demo parola ozeti dogrulanamadi")
+	}
+
+	for _, l := range demoLots() {
+		var price int64
+		var planID int64
+		if err := pool.QueryRow(ctx,
+			`SELECT id, monthly_price_kurus FROM plans WHERE code = $1`, l.Code+"-AYLIK",
+		).Scan(&planID, &price); err != nil {
+			t.Fatalf("%s plani yok: %v", l.Code, err)
+		}
+		if price != 150000 {
+			t.Fatalf("%s plan fiyati = %d, beklenen 150000", l.Code, price)
+		}
+	}
+
+	konum, err := time.LoadLocation("Europe/Istanbul")
+	if err != nil {
+		t.Fatalf("Europe/Istanbul yuklenemedi: %v", err)
+	}
+	now := time.Now().In(konum)
+	ayBasi := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, konum)
+	var planCode string
+	var periodStart time.Time
+	var status string
+	var subUserID *int64
+	if err := pool.QueryRow(ctx,
+		`SELECT p.code, s.current_period_start, s.status, s.user_id
+		   FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+		  WHERE s.plate = $1 AND s.status IN ('active','past_due')
+		  ORDER BY s.id DESC LIMIT 1`,
+		"34ABC123",
+	).Scan(&planCode, &periodStart, &status, &subUserID); err != nil {
+		t.Fatalf("demo abonelik yok: %v", err)
+	}
+	if planCode != "KADIKOY-AYLIK" || status != "active" {
+		t.Fatalf("demo abonelik yanlis: plan=%s durum=%s", planCode, status)
+	}
+	if !periodStart.Equal(time.Date(ayBasi.Year(), ayBasi.Month(), 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("demo abonelik donemi = %v, beklenen %v", periodStart, ayBasi)
+	}
+	if subUserID == nil || *subUserID != user.ID {
+		t.Fatalf("demo abonelik sahibi yanlis: %v", subUserID)
 	}
 }
 

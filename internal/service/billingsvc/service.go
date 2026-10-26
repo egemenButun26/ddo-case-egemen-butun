@@ -74,6 +74,10 @@ func (s *Service) dayBounds(day time.Time) (start, end, date time.Time) {
 }
 
 func (s *Service) Subscribe(ctx context.Context, plate, planCode string, start time.Time) (store.Subscription, error) {
+	return s.SubscribeForUser(ctx, plate, planCode, nil, start)
+}
+
+func (s *Service) SubscribeForUser(ctx context.Context, plate, planCode string, userID *int64, start time.Time) (store.Subscription, error) {
 	if strings.TrimSpace(plate) == "" {
 		return store.Subscription{}, ErrInvalidPlate
 	}
@@ -91,7 +95,7 @@ func (s *Service) Subscribe(ctx context.Context, plate, planCode string, start t
 		return store.Subscription{}, ErrInvalidPlan
 	}
 	ps, pe := s.monthBounds(start)
-	id, err := store.InsertSubscription(ctx, tx, plan.ID, plate, ps, pe)
+	id, err := store.InsertSubscriptionWithUser(ctx, tx, plan.ID, plate, userID, ps, pe)
 	if err != nil {
 		return store.Subscription{}, err
 	}
@@ -128,7 +132,7 @@ func (s *Service) Cancel(ctx context.Context, subID int64, at time.Time) (Cancel
 
 	result := Cancellation{SubscriptionID: sub.ID, Credit: credit}
 	if credit > 0 {
-		result.InvoiceID, err = store.InsertInvoice(ctx, tx, store.Invoice{
+		result.InvoiceID, err = store.AddProrationInvoice(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,
 			PeriodStart:    ps,
 			PeriodEnd:      pe,
@@ -191,7 +195,7 @@ func (s *Service) ChangePlan(ctx context.Context, subID int64, newPlanCode strin
 		Direction:      change.Direction(),
 	}
 	if change.Charge > 0 {
-		result.ChargeInvoiceID, err = store.InsertInvoice(ctx, tx, store.Invoice{
+		result.ChargeInvoiceID, err = store.AddProrationInvoice(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,
 			PeriodStart:    ps,
 			PeriodEnd:      pe,
@@ -204,7 +208,7 @@ func (s *Service) ChangePlan(ctx context.Context, subID int64, newPlanCode strin
 		}
 	}
 	if change.Credit > 0 {
-		result.CreditInvoiceID, err = store.InsertInvoice(ctx, tx, store.Invoice{
+		result.CreditInvoiceID, err = store.AddProrationInvoice(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,
 			PeriodStart:    ps,
 			PeriodEnd:      pe,

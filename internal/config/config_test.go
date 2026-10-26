@@ -38,6 +38,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AuthSessionTTL != 12*time.Hour {
 		t.Errorf("AuthSessionTTL = %v, beklenen 12h", cfg.AuthSessionTTL)
 	}
+	if cfg.DunningInterval != time.Minute {
+		t.Errorf("DunningInterval = %v, beklenen 1m", cfg.DunningInterval)
+	}
 }
 
 func TestLoadCustomValues(t *testing.T) {
@@ -49,6 +52,7 @@ func TestLoadCustomValues(t *testing.T) {
 		"SHUTDOWN_TIMEOUT": "3s",
 		"DB_PING_TIMEOUT":  "500ms",
 		"AUTH_SESSION_TTL": "45m",
+		"DUNNING_INTERVAL": "30s",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -67,6 +71,9 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.AuthSessionTTL != 45*time.Minute {
 		t.Errorf("AuthSessionTTL = %v", cfg.AuthSessionTTL)
+	}
+	if cfg.DunningInterval != 30*time.Second {
+		t.Errorf("DunningInterval = %v", cfg.DunningInterval)
 	}
 }
 

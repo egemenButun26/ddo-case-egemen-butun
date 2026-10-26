@@ -255,12 +255,16 @@ func TestRunPeriodEnd(t *testing.T) {
 		t.Fatalf("abonelik iptal edilemedi: %v", err)
 	}
 
+	due := dueSubscriptions(t, pool, an(t, "2026-05-01 00:00:00"))
 	created, err := svc.RunPeriodEnd(ctx, an(t, "2026-05-01 00:00:00"))
 	if err != nil {
 		t.Fatalf("donem sonu calismadi: %v", err)
 	}
-	if created != 3 {
-		t.Fatalf("olusturulan fatura = %d, beklenen 3", created)
+	if created != due {
+		t.Fatalf("olusturulan fatura = %d, odenmesi gereken abonelik = %d", created, due)
+	}
+	if created < 3 {
+		t.Fatalf("olusturulan fatura = %d, en az 3 beklenirdi", created)
 	}
 	for _, id := range subIDler {
 		fs := faturalar(t, pool, int64(id))
@@ -322,6 +326,7 @@ func TestRunPeriodEndConcurrent(t *testing.T) {
 	}
 
 	donem := an(t, "2026-09-01 00:00:00")
+	due := dueSubscriptions(t, pool, donem)
 	basla := make(chan struct{})
 	sonuclar := make(chan int, adet)
 	hatalar := make(chan error, adet)
@@ -350,8 +355,11 @@ func TestRunPeriodEndConcurrent(t *testing.T) {
 	for n := range sonuclar {
 		toplam += n
 	}
-	if toplam != adet {
-		t.Fatalf("eszamanli toplam fatura = %d, beklenen %d", toplam, adet)
+	if toplam != due {
+		t.Fatalf("eszamanli toplam fatura = %d, faturalanacak abonelik = %d", toplam, due)
+	}
+	if toplam < adet {
+		t.Fatalf("eszamanli toplam fatura = %d, en az %d beklenirdi", toplam, adet)
 	}
 	for _, id := range subIDler {
 		if fs := faturalar(t, pool, id); len(fs) != 1 {
@@ -478,6 +486,201 @@ func TestDunning(t *testing.T) {
 	}
 	if _, err := svc.RecordPaymentAttempt(ctx, 1<<60, true, zaman); !errors.Is(err, store.ErrInvoiceNotFound) {
 		t.Fatalf("olmayan fatura hatasi = %v, beklenen ErrInvoiceNotFound", err)
+	}
+}
+
+func dueSubscriptions(t *testing.T, pool *pgxpool.Pool, periodStart time.Time) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM subscriptions
+		  WHERE status IN ('active','past_due') AND current_period_start <= $1`,
+		periodStart.Format("2006-01-02"),
+	).Scan(&n); err != nil {
+		t.Fatalf("faturalanacak abonelik sayisi okunamadi: %v", err)
+	}
+	return n
+}
+
+func TestChangePlanCancelSamePeriod(t *testing.T) {
+	pool, svc := yeniServis(t)
+	ctx := context.Background()
+	ucuz := planOlustur(t, pool, 3000)
+	pahali := planOlustur(t, pool, 6000)
+
+	sub, err := svc.Subscribe(ctx, benzersiz("34PCS"), ucuz, an(t, "2026-11-01 00:00:00"))
+	if err != nil {
+		t.Fatalf("abonelik acilamadi: %v", err)
+	}
+	degisim, err := svc.ChangePlan(ctx, sub.ID, pahali, an(t, "2026-11-10 00:00:00"))
+	if err != nil {
+		t.Fatalf("plan degistirilemedi: %v", err)
+	}
+	if degisim.Credit != 2100 || degisim.Charge != 4200 {
+		t.Fatalf("ilk degisim yanlis: %+v", degisim)
+	}
+
+	iptal, err := svc.Cancel(ctx, sub.ID, an(t, "2026-11-20 00:00:00"))
+	if err != nil {
+		t.Fatalf("plan gecisinden sonra iptal basarisiz: %v", err)
+	}
+	if iptal.Credit != 2200 {
+		t.Fatalf("iptal kredisi = %d, beklenen 2200", iptal.Credit)
+	}
+	if iptal.InvoiceID != degisim.CreditInvoiceID {
+		t.Fatalf("iptal kredisi ayri fatura acti: %d != %d", iptal.InvoiceID, degisim.CreditInvoiceID)
+	}
+	credit, err := store.GetInvoice(ctx, pool, degisim.CreditInvoiceID)
+	if err != nil {
+		t.Fatalf("kredi faturasi okunamadi: %v", err)
+	}
+	if credit.Amount != 4300 {
+		t.Fatalf("birlesik kredi = %d, beklenen 4300", credit.Amount)
+	}
+	charge, err := store.GetInvoice(ctx, pool, degisim.ChargeInvoiceID)
+	if err != nil {
+		t.Fatalf("ucret faturasi okunamadi: %v", err)
+	}
+	if charge.Amount != 4200 {
+		t.Fatalf("ucret faturasi = %d, beklenen 4200", charge.Amount)
+	}
+	fs := faturalar(t, pool, sub.ID)
+	if len(fs) != 2 {
+		t.Fatalf("fatura sayisi = %d, beklenen 2 (donem faturasi yok)", len(fs))
+	}
+	guncel, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if guncel.Status != billing.StatusCancelled {
+		t.Fatalf("durum = %q, beklenen cancelled", guncel.Status)
+	}
+}
+
+func TestChangePlanTwiceSamePeriod(t *testing.T) {
+	pool, svc := yeniServis(t)
+	ctx := context.Background()
+	ucuz := planOlustur(t, pool, 3000)
+	orta := planOlustur(t, pool, 6000)
+	yeni := planOlustur(t, pool, 4000)
+
+	sub, err := svc.Subscribe(ctx, benzersiz("34PCS"), ucuz, an(t, "2026-11-01 00:00:00"))
+	if err != nil {
+		t.Fatalf("abonelik acilamadi: %v", err)
+	}
+	ilk, err := svc.ChangePlan(ctx, sub.ID, orta, an(t, "2026-11-10 00:00:00"))
+	if err != nil {
+		t.Fatalf("ilk plan gecisi basarisiz: %v", err)
+	}
+	ikinci, err := svc.ChangePlan(ctx, sub.ID, yeni, an(t, "2026-11-20 00:00:00"))
+	if err != nil {
+		t.Fatalf("ikinci plan gecisi basarisiz: %v", err)
+	}
+	if ikinci.Credit != 2200 || ikinci.Charge != 1466 || ikinci.Direction != "downgrade" {
+		t.Fatalf("ikinci gecis yanlis: %+v", ikinci)
+	}
+	credit, err := store.GetInvoice(ctx, pool, ilk.CreditInvoiceID)
+	if err != nil {
+		t.Fatalf("kredi faturasi okunamadi: %v", err)
+	}
+	if credit.Amount != 4300 || credit.ID != ikinci.CreditInvoiceID {
+		t.Fatalf("kredi birlestirilemedi: %+v (ikinci id %d)", credit, ikinci.CreditInvoiceID)
+	}
+	charge, err := store.GetInvoice(ctx, pool, ilk.ChargeInvoiceID)
+	if err != nil {
+		t.Fatalf("ucret faturasi okunamadi: %v", err)
+	}
+	if charge.Amount != 5666 || charge.ID != ikinci.ChargeInvoiceID {
+		t.Fatalf("ucret birlestirilemedi: %+v (ikinci id %d)", charge, ikinci.ChargeInvoiceID)
+	}
+	if fs := faturalar(t, pool, sub.ID); len(fs) != 2 {
+		t.Fatalf("fatura sayisi = %d, beklenen 2", len(fs))
+	}
+	guncel, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if guncel.PlanCode != yeni || guncel.MonthlyPrice != 4000 {
+		t.Fatalf("son plan yanlis: %+v", guncel)
+	}
+}
+
+func TestRunPeriodEndPastDue(t *testing.T) {
+	pool, svc := yeniServis(t)
+	ctx := context.Background()
+	plan := planOlustur(t, pool, 1234)
+
+	sub, err := svc.Subscribe(ctx, benzersiz("34PST"), plan, an(t, "2027-02-01 00:00:00"))
+	if err != nil {
+		t.Fatalf("abonelik acilamadi: %v", err)
+	}
+	if err := store.SetSubscriptionStatus(ctx, pool, sub.ID, billing.StatusPastDue, nil); err != nil {
+		t.Fatalf("past_due yapilamadi: %v", err)
+	}
+	if _, err := svc.RunPeriodEnd(ctx, an(t, "2027-02-01 00:00:00")); err != nil {
+		t.Fatalf("donem sonu: %v", err)
+	}
+	fs := faturalar(t, pool, sub.ID)
+	if len(fs) != 1 || fs[0].Kind != store.InvoiceKindPeriod || fs[0].Amount != 1234 {
+		t.Fatalf("past_due donem faturasi yanlis: %+v", fs)
+	}
+	guncel, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if guncel.Status != billing.StatusPastDue {
+		t.Fatalf("durum = %q, beklenen past_due", guncel.Status)
+	}
+	if !guncel.CurrentPeriodStart.Equal(tarihUTC(2027, 3, 1)) || !guncel.CurrentPeriodEnd.Equal(tarihUTC(2027, 4, 1)) {
+		t.Fatalf("past_due donemi ilerlemedi: %v - %v", guncel.CurrentPeriodStart, guncel.CurrentPeriodEnd)
+	}
+}
+
+func TestRunPeriodEndSuspendedReactivated(t *testing.T) {
+	pool, svc := yeniServis(t)
+	ctx := context.Background()
+	plan := planOlustur(t, pool, 777)
+
+	sub, err := svc.Subscribe(ctx, benzersiz("34SUS"), plan, an(t, "2027-03-01 00:00:00"))
+	if err != nil {
+		t.Fatalf("abonelik acilamadi: %v", err)
+	}
+	if err := store.SetSubscriptionStatus(ctx, pool, sub.ID, billing.StatusSuspended, nil); err != nil {
+		t.Fatalf("suspended yapilamadi: %v", err)
+	}
+	if _, err := svc.RunPeriodEnd(ctx, an(t, "2027-03-01 00:00:00")); err != nil {
+		t.Fatalf("askidayken donem sonu: %v", err)
+	}
+	if fs := faturalar(t, pool, sub.ID); len(fs) != 0 {
+		t.Fatalf("suspended abonelik faturalandi: %+v", fs)
+	}
+	askida, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if !askida.CurrentPeriodStart.Equal(tarihUTC(2027, 3, 1)) {
+		t.Fatalf("suspended donemi ilerledi: %v", askida.CurrentPeriodStart)
+	}
+
+	if err := store.SetSubscriptionStatus(ctx, pool, sub.ID, billing.StatusActive, nil); err != nil {
+		t.Fatalf("active yapilamadi: %v", err)
+	}
+	if _, err := svc.RunPeriodEnd(ctx, an(t, "2027-04-01 00:00:00")); err != nil {
+		t.Fatalf("yeniden aktif donem sonu: %v", err)
+	}
+	fs := faturalar(t, pool, sub.ID)
+	if len(fs) != 1 {
+		t.Fatalf("yeniden aktif sonrasi fatura sayisi = %d, beklenen 1", len(fs))
+	}
+	if !fs[0].PeriodStart.Equal(tarihUTC(2027, 4, 1)) || fs[0].Amount != 777 {
+		t.Fatalf("yeniden aktif fatura yanlis: %+v", fs[0])
+	}
+	guncel, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if !guncel.CurrentPeriodStart.Equal(tarihUTC(2027, 5, 1)) || !guncel.CurrentPeriodEnd.Equal(tarihUTC(2027, 6, 1)) {
+		t.Fatalf("yeniden aktif donemi ilerlemedi: %v - %v", guncel.CurrentPeriodStart, guncel.CurrentPeriodEnd)
 	}
 }
 
