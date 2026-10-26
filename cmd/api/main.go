@@ -54,7 +54,15 @@ func run() int {
 		return 1
 	}
 
-	handler := httpx.NewRouter(logger, pool, cfg.DBPingTimeout, svc, cfg.CameraAPIKey)
+	handler := httpx.NewRouter(httpx.Deps{
+		Logger:      logger,
+		Pinger:      pool,
+		PingTimeout: cfg.DBPingTimeout,
+		Events:      svc,
+		CameraKey:   cfg.CameraAPIKey,
+		DB:          pool,
+		SessionTTL:  cfg.AuthSessionTTL,
+	})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
