@@ -47,11 +47,10 @@ func hash32(b byte) [32]byte {
 }
 
 type chargeTrap struct {
-	mu       chan struct{}
-	items    []providerChargeRequest
-	notify   bool
-	secret   string
-	failNext bool
+	mu     chan struct{}
+	items  []providerChargeRequest
+	notify bool
+	secret string
 }
 
 func newChargeTrap(notify bool) *chargeTrap {
