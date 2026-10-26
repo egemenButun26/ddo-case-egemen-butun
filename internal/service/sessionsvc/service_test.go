@@ -1450,3 +1450,132 @@ func TestBekleyenCikisKapatmaHatasi(t *testing.T) {
 		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, girisSonuc.SessionID)
 	}
 }
+
+func TestTekrarOlayNanosaniye(t *testing.T) {
+	pool, svc, lotID, _ := hazirlaStandart(t)
+	at := an(t, "2026-10-27 10:00:00").Add(123456789 * time.Nanosecond)
+	ev := session.Event{
+		LotID:         lotID,
+		CameraID:      "cam-nano",
+		CameraEventID: "olay-nano",
+		Direction:     session.Entry,
+		PlateRaw:      "34ABC123",
+		CapturedAt:    at,
+	}
+
+	ilk, err := svc.HandleEvent(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("ilk olay islenemedi: %v", err)
+	}
+	if ilk.Outcome != session.OutcomeOpened {
+		t.Fatalf("ilk sonuc = %q, beklenen opened", ilk.Outcome)
+	}
+
+	tekrar, err := svc.HandleEvent(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("tekrar olay hata verdi: %v", err)
+	}
+	if !tekrar.Replayed {
+		t.Fatalf("tekrar Replayed false")
+	}
+	if tekrar.EventID != ilk.EventID || tekrar.SessionID != ilk.SessionID || tekrar.Outcome != ilk.Outcome {
+		t.Fatalf("tekrar sonucu farkli: %+v / %+v", tekrar, ilk)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
+		t.Fatalf("plate_events satir sayisi = %d, beklenen 1", n)
+	}
+}
+
+func TestTekrarOlayNanosaniyeYuvarlama(t *testing.T) {
+	pool, svc, lotID, _ := hazirlaStandart(t)
+	giris := an(t, "2026-10-27 10:00:00").Add(999999999 * time.Nanosecond)
+	cikis := an(t, "2026-10-27 11:10:00").Add(999999999 * time.Nanosecond)
+
+	girisOlay := session.Event{
+		LotID:         lotID,
+		CameraID:      "cam-yuvarlama",
+		CameraEventID: "giris-yuvarlama",
+		Direction:     session.Entry,
+		PlateRaw:      "34ABU123",
+		CapturedAt:    giris,
+	}
+	ilkGiris, err := svc.HandleEvent(context.Background(), girisOlay)
+	if err != nil {
+		t.Fatalf("giris islenemedi: %v", err)
+	}
+	if ilkGiris.Outcome != session.OutcomeOpened {
+		t.Fatalf("giris sonucu = %q, beklenen opened", ilkGiris.Outcome)
+	}
+	tekrarGiris, err := svc.HandleEvent(context.Background(), girisOlay)
+	if err != nil {
+		t.Fatalf("tekrar giris hata verdi: %v", err)
+	}
+	if !tekrarGiris.Replayed {
+		t.Fatalf("tekrar giris Replayed false")
+	}
+	if tekrarGiris.EventID != ilkGiris.EventID || tekrarGiris.SessionID != ilkGiris.SessionID ||
+		tekrarGiris.Outcome != ilkGiris.Outcome {
+		t.Fatalf("tekrar giris sonucu farkli: %+v / %+v", tekrarGiris, ilkGiris)
+	}
+
+	cikisOlay := session.Event{
+		LotID:         lotID,
+		CameraID:      "cam-yuvarlama",
+		CameraEventID: "cikis-yuvarlama",
+		Direction:     session.Exit,
+		PlateRaw:      "34ABU123",
+		CapturedAt:    cikis,
+	}
+	ilkCikis, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("cikis islenemedi: %v", err)
+	}
+	if ilkCikis.Outcome != session.OutcomeClosed {
+		t.Fatalf("cikis sonucu = %q, beklenen closed", ilkCikis.Outcome)
+	}
+	if ilkCikis.AmountKurus == nil {
+		t.Fatalf("ilk cikis tutari bos")
+	}
+	tekrarCikis, err := svc.HandleEvent(context.Background(), cikisOlay)
+	if err != nil {
+		t.Fatalf("tekrar cikis hata verdi: %v", err)
+	}
+	if !tekrarCikis.Replayed {
+		t.Fatalf("tekrar cikis Replayed false")
+	}
+	if tekrarCikis.EventID != ilkCikis.EventID || tekrarCikis.SessionID != ilkCikis.SessionID ||
+		tekrarCikis.Outcome != ilkCikis.Outcome {
+		t.Fatalf("tekrar cikis sonucu farkli: %+v / %+v", tekrarCikis, ilkCikis)
+	}
+	if tekrarCikis.AmountKurus == nil || *tekrarCikis.AmountKurus != *ilkCikis.AmountKurus {
+		t.Fatalf("tekrar cikis tutari = %v, beklenen %v", tekrarCikis.AmountKurus, ilkCikis.AmountKurus)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 2 {
+		t.Fatalf("plate_events satir sayisi = %d, beklenen 2", n)
+	}
+}
+
+func TestOlayCakismasiMikrosaniyeFarki(t *testing.T) {
+	pool, svc, lotID, _ := hazirlaStandart(t)
+	at := an(t, "2026-10-27 10:00:00")
+	ev := session.Event{
+		LotID:         lotID,
+		CameraID:      "cam-mikro",
+		CameraEventID: "olay-mikro",
+		Direction:     session.Entry,
+		PlateRaw:      "34ABC123",
+		CapturedAt:    at,
+	}
+	if _, err := svc.HandleEvent(context.Background(), ev); err != nil {
+		t.Fatalf("ilk olay islenemedi: %v", err)
+	}
+
+	yanlis := ev
+	yanlis.CapturedAt = at.Add(1 * time.Microsecond)
+	if _, err := svc.HandleEvent(context.Background(), yanlis); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("mikrosaniye farki hatasi = %v, beklenen ErrEventConflict", err)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
+		t.Fatalf("plate_events satir sayisi = %d, beklenen 1", n)
+	}
+}

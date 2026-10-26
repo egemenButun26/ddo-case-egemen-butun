@@ -55,6 +55,10 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 		return Result{}, err
 	}
 
+	// timestamptz mikrosaniye saklar, Go nanosaniye tasir; kayit, karar ve tekrar
+	// karsilastirmasi ayni degeri kullansin diye olayi once burada kesiyoruz.
+	ev.CapturedAt = ev.CapturedAt.Truncate(time.Microsecond)
+
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Result{}, err
