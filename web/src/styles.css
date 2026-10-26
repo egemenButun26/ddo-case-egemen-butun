@@ -316,7 +316,8 @@ input:focus-visible {
   font-weight: 600;
 }
 
-.alan input {
+.alan input,
+.alan select {
   width: 100%;
   min-height: 44px;
   padding: 10px 12px;
@@ -325,6 +326,20 @@ input:focus-visible {
   background: var(--kart-arka-plan);
   color: var(--metin);
   font: inherit;
+}
+
+.alan select {
+  max-width: 100%;
+}
+
+.alan--satir {
+  margin-bottom: 0;
+}
+
+.alan--satir input,
+.alan--satir select {
+  min-height: 40px;
+  padding: 6px 10px;
 }
 
 .alan input[aria-invalid="true"] {
@@ -397,6 +412,143 @@ input:focus-visible {
   color: var(--mavi);
   font-size: 13px;
   font-weight: 600;
+}
+
+.ekran {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ekran .kart {
+  max-width: 760px;
+}
+
+.ekran h2 {
+  margin: 20px 0 6px;
+  font-size: 18px;
+}
+
+.kayit-listesi {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kayit-satiri {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--cizgi);
+}
+
+.kayit-satiri:last-child {
+  border-bottom: 0;
+}
+
+.kayit-satiri > div {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.kayit-satiri--dikey {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.kayit-basligi {
+  margin: 0;
+  font-weight: 600;
+}
+
+.satir-islemleri {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.satir-islemleri .dugme {
+  width: auto;
+}
+
+.dugme--dar {
+  width: auto;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.buyuk-tutar {
+  margin: 8px 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.basari {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--yesil);
+  border-radius: 10px;
+  background: var(--yesil-zemin);
+  color: var(--yesil);
+  font-size: 14px;
+}
+
+.canli-gosterge {
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--yesil-zemin);
+  color: var(--yesil);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.doluluk-listesi {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doluluk-karti {
+  padding: 12px;
+  border: 1px solid var(--cizgi);
+  border-radius: 10px;
+}
+
+.doluluk {
+  margin-top: 8px;
+}
+
+.doluluk-etiketi {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.doluluk-cubugu {
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--arka-plan);
+  border: 1px solid var(--cizgi);
+}
+
+.doluluk-dolgu {
+  display: block;
+  height: 100%;
+  background: var(--mavi);
+}
+
+.doluluk-metni {
+  margin: 4px 0 0;
 }
 
 @media (min-width: 720px) {
