@@ -1,9 +1,13 @@
 import { Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { RequireRole } from "./components/RequireRole";
-import { HomePage, RoleHomePage } from "./pages/HomePage";
+import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
-import { AdminUsersPage } from "./pages/AdminUsersPage";
+import { SurucuPage } from "./pages/SurucuPage";
+import { GorevliPage } from "./pages/GorevliPage";
+import { MuhasebePage } from "./pages/MuhasebePage";
+import { MudurPage } from "./pages/MudurPage";
+import { YoneticiPage } from "./pages/YoneticiPage";
 
 function Bulunamadi() {
   return (
@@ -24,10 +28,7 @@ export function App() {
           path="surucu"
           element={
             <RequireRole rol="driver">
-              <RoleHomePage
-                baslik="Sürücü"
-                aciklama="Borç sorgulama ve ödeme işlemleri"
-              />
+              <SurucuPage />
             </RequireRole>
           }
         />
@@ -35,10 +36,7 @@ export function App() {
           path="gorevli"
           element={
             <RequireRole rol="attendant">
-              <RoleHomePage
-                baslik="Görevli"
-                aciklama="İnceleme kuyruğu ve saha işlemleri"
-              />
+              <GorevliPage />
             </RequireRole>
           }
         />
@@ -46,10 +44,7 @@ export function App() {
           path="muhasebe"
           element={
             <RequireRole rol="accountant">
-              <RoleHomePage
-                baslik="Muhasebe"
-                aciklama="Tahsilat ve mutabakat işlemleri"
-              />
+              <MuhasebePage />
             </RequireRole>
           }
         />
@@ -57,10 +52,7 @@ export function App() {
           path="mudur"
           element={
             <RequireRole rol="manager">
-              <RoleHomePage
-                baslik="Müdür"
-                aciklama="Doluluk panosu ve raporlar"
-              />
+              <MudurPage />
             </RequireRole>
           }
         />
@@ -68,7 +60,7 @@ export function App() {
           path="yonetici"
           element={
             <RequireRole rol="admin">
-              <AdminUsersPage />
+              <YoneticiPage />
             </RequireRole>
           }
         />

@@ -81,6 +81,20 @@ func InsertReservation(ctx context.Context, q Querier, lotID int64, plate string
 	return r, nil
 }
 
+// GetReservation, kimligiyle rezervasyonu doner.
+func GetReservation(ctx context.Context, q Querier, id int64) (occupancy.Reservation, error) {
+	r, err := scanReservation(q.QueryRow(ctx,
+		`SELECT `+reservationColumns+` FROM reservations WHERE id = $1`, id,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return occupancy.Reservation{}, ErrNotFound
+	}
+	if err != nil {
+		return occupancy.Reservation{}, err
+	}
+	return r, nil
+}
+
 // ListActiveReservations, otoparkin aktif rezervasyonlarini kimlik sirasiyla doner.
 func ListActiveReservations(ctx context.Context, q Querier, lotID int64) ([]occupancy.Reservation, error) {
 	rows, err := q.Query(ctx,

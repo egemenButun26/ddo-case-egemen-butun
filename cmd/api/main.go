@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/httpx"
+	"parkakil/internal/service/occupancysvc"
 	"parkakil/internal/service/paymentsvc"
 	"parkakil/internal/service/sessionsvc"
 )
@@ -66,9 +68,32 @@ func run() int {
 		return 1
 	}
 
+	occupancySvc, err := occupancysvc.New(pool)
+	if err != nil {
+		logger.Error("doluluk servisi olusturulamadi", "hata", err)
+		pool.Close()
+		return 1
+	}
+
 	isCtx, isIptal := context.WithCancel(context.Background())
 	defer isIptal()
 	go paymentExpireLoop(isCtx, logger, payments, cfg.PaymentExpireInterval)
+
+	opsCtx, opsCancel := context.WithCancel(context.Background())
+	var opsWG sync.WaitGroup
+	opsWG.Add(2)
+	go func() {
+		defer opsWG.Done()
+		occupancySvc.RunReleaseLoop(opsCtx, cfg.ReservationReleaseInterval, logger)
+	}()
+	go func() {
+		defer opsWG.Done()
+		occupancySvc.RunDriftLoop(opsCtx, cfg.DriftCheckInterval, logger)
+	}()
+	stopOps := func() {
+		opsCancel()
+		opsWG.Wait()
+	}
 
 	handler := httpx.NewRouter(httpx.Deps{
 		Logger:        logger,
@@ -76,8 +101,10 @@ func run() int {
 		PingTimeout:   cfg.DBPingTimeout,
 		Events:        svc,
 		CameraKey:     cfg.CameraAPIKey,
+		MetricsToken:  cfg.MetricsToken,
 		DB:            pool,
 		SessionTTL:    cfg.AuthSessionTTL,
+		Occupancy:     occupancySvc,
 		Payments:      payments,
 		ProviderURL:   cfg.ProviderURL,
 		WebhookSecret: cfg.ProviderWebhookSecret,
@@ -107,6 +134,7 @@ func run() int {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("sunucu hatasi", "hata", err)
 			isIptal()
+			stopOps()
 			pool.Close()
 			return 1
 		}
@@ -117,6 +145,7 @@ func run() int {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("duzgun kapanis basarisiz", "hata", err)
 			_ = srv.Close()
+			stopOps()
 			pool.Close()
 			logger.Info("kapandi")
 			return 1
@@ -124,6 +153,7 @@ func run() int {
 	}
 
 	isIptal()
+	stopOps()
 	pool.Close()
 	logger.Info("kapandi")
 	return 0

@@ -8,18 +8,22 @@ import (
 )
 
 type Config struct {
-	DatabaseURL           string
-	HTTPAddr              string
-	CameraAPIKey          string
-	LogLevel              slog.Level
-	ShutdownTimeout       time.Duration
-	DBPingTimeout         time.Duration
-	AuthSessionTTL        time.Duration
-	ProviderURL           string
-	ProviderWebhookSecret string
-	ProviderTimeout       time.Duration
-	PaymentExpireInterval time.Duration
-	PublicAPIURL          string
+	DatabaseURL     string
+	HTTPAddr        string
+	CameraAPIKey    string
+	MetricsToken    string
+	LogLevel        slog.Level
+	ShutdownTimeout time.Duration
+	DBPingTimeout   time.Duration
+	AuthSessionTTL  time.Duration
+
+	ReservationReleaseInterval time.Duration
+	DriftCheckInterval         time.Duration
+	ProviderURL                string
+	ProviderWebhookSecret      string
+	ProviderTimeout            time.Duration
+	PaymentExpireInterval      time.Duration
+	PublicAPIURL               string
 }
 
 const (
@@ -31,17 +35,20 @@ const (
 
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		DatabaseURL:           getenv("DATABASE_URL"),
-		HTTPAddr:              getenv("HTTP_ADDR"),
-		CameraAPIKey:          getenv("CAMERA_API_KEY"),
-		ShutdownTimeout:       10 * time.Second,
-		DBPingTimeout:         2 * time.Second,
-		AuthSessionTTL:        12 * time.Hour,
-		ProviderURL:           getenv("PROVIDER_URL"),
-		ProviderWebhookSecret: getenv("PROVIDER_WEBHOOK_SECRET"),
-		ProviderTimeout:       defaultProviderTimeout,
-		PaymentExpireInterval: defaultPaymentExpireInterval,
-		PublicAPIURL:          getenv("PUBLIC_API_URL"),
+		DatabaseURL:                getenv("DATABASE_URL"),
+		HTTPAddr:                   getenv("HTTP_ADDR"),
+		CameraAPIKey:               getenv("CAMERA_API_KEY"),
+		MetricsToken:               getenv("METRICS_TOKEN"),
+		ShutdownTimeout:            10 * time.Second,
+		DBPingTimeout:              2 * time.Second,
+		AuthSessionTTL:             12 * time.Hour,
+		ReservationReleaseInterval: 30 * time.Second,
+		DriftCheckInterval:         5 * time.Minute,
+		ProviderURL:                getenv("PROVIDER_URL"),
+		ProviderWebhookSecret:      getenv("PROVIDER_WEBHOOK_SECRET"),
+		ProviderTimeout:            defaultProviderTimeout,
+		PaymentExpireInterval:      defaultPaymentExpireInterval,
+		PublicAPIURL:               getenv("PUBLIC_API_URL"),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -52,6 +59,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if len(cfg.CameraAPIKey) < 32 {
 		return Config{}, errors.New("config: CAMERA_API_KEY en az 32 karakter olmali")
+	}
+	if cfg.MetricsToken != "" && len(cfg.MetricsToken) < 16 {
+		return Config{}, errors.New("config: METRICS_TOKEN en az 16 karakter olmali")
 	}
 	if cfg.HTTPAddr == "" {
 		cfg.HTTPAddr = ":8080"
@@ -72,6 +82,14 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.AuthSessionTTL, err = parsePositiveDuration("AUTH_SESSION_TTL", getenv("AUTH_SESSION_TTL"), cfg.AuthSessionTTL)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ReservationReleaseInterval, err = parsePositiveDuration("RESERVATION_RELEASE_INTERVAL", getenv("RESERVATION_RELEASE_INTERVAL"), cfg.ReservationReleaseInterval)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.DriftCheckInterval, err = parsePositiveDuration("DRIFT_CHECK_INTERVAL", getenv("DRIFT_CHECK_INTERVAL"), cfg.DriftCheckInterval)
 	if err != nil {
 		return Config{}, err
 	}

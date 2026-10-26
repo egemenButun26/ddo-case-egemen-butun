@@ -87,6 +87,59 @@ func SetEventOutcome(ctx context.Context, q Querier, eventID int64, outcome sess
 	return nil
 }
 
+// RecentEvent, son plaka olaylarinin gorunumudur.
+type RecentEvent struct {
+	ID         int64
+	LotID      int64
+	Direction  session.Direction
+	PlateRaw   string
+	PlateNorm  string
+	CapturedAt time.Time
+	Outcome    session.Outcome
+	SessionID  int64
+}
+
+// ListRecentEvents, lot filtresiyle en yeni olaylari azalan kimlik sirasiyla doner.
+// beforeID sifirdan buyukse yalnizca daha eski kayitlar secilir.
+func ListRecentEvents(ctx context.Context, q Querier, lotID, beforeID int64, limit int) ([]RecentEvent, error) {
+	rows, err := q.Query(ctx,
+		`SELECT id, lot_id, direction, plate_raw, plate_norm, captured_at, outcome, session_id
+		 FROM plate_events
+		 WHERE ($1 = 0 OR lot_id = $1) AND ($2 = 0 OR id < $2)
+		 ORDER BY id DESC LIMIT $3`,
+		lotID, beforeID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RecentEvent
+	for rows.Next() {
+		var (
+			e         RecentEvent
+			direction string
+			outcome   string
+			sessionID *int64
+		)
+		if err := rows.Scan(&e.ID, &e.LotID, &direction, &e.PlateRaw, &e.PlateNorm,
+			&e.CapturedAt, &outcome, &sessionID); err != nil {
+			return nil, err
+		}
+		e.Direction = session.Direction(direction)
+		e.Outcome = session.Outcome(outcome)
+		if sessionID != nil {
+			e.SessionID = *sessionID
+		}
+		e.CapturedAt = e.CapturedAt.UTC()
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ListOrphanExits, since zamanindan itibaren bekleyen cikislari sirayla doner.
 func ListOrphanExits(ctx context.Context, q Querier, lotID int64, since time.Time) ([]session.OrphanExit, error) {
 	rows, err := q.Query(ctx,
