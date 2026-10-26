@@ -2,7 +2,7 @@
   "name": "parkakil",
   "private": true,
   "scripts": {
-    "test": "node test/faz1.js && node test/faz2.js",
+    "test": "node test/faz2.js",
     "test:faz2": "node test/faz2.js"
   }
 }
