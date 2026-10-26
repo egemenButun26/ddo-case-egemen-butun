@@ -15,7 +15,8 @@ COPY migrations ./migrations
 RUN go build -trimpath -ldflags "-s -w" -o /out/api ./cmd/api \
  && go build -trimpath -ldflags "-s -w" -o /out/migrate ./cmd/migrate \
  && go build -trimpath -ldflags "-s -w" -o /out/seed ./cmd/seed \
- && go build -trimpath -ldflags "-s -w" -o /out/simulator ./cmd/simulator
+ && go build -trimpath -ldflags "-s -w" -o /out/simulator ./cmd/simulator \
+ && go build -trimpath -ldflags "-s -w" -o /out/providersim ./cmd/providersim
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -25,6 +26,7 @@ COPY --from=build /out/api /app/api
 COPY --from=build /out/migrate /app/migrate
 COPY --from=build /out/seed /app/seed
 COPY --from=build /out/simulator /app/simulator
+COPY --from=build /out/providersim /app/providersim
 
 USER nonroot:nonroot
 

@@ -246,6 +246,21 @@ func UpdatePaymentStatus(ctx context.Context, q Querier, id int64, p payment.Pay
 	return nil
 }
 
+// ListPayments odemeleri kimlik sirasiyla (keyset) doner.
+func ListPayments(ctx context.Context, q Querier, afterID int64, limit int) ([]StoredPayment, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := q.Query(ctx,
+		`SELECT `+paymentColumns()+`
+		 FROM payments WHERE id > $1
+		 ORDER BY id LIMIT $2`, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanPayments(rows)
+}
+
 // ListExpiredPending, istek zamani esik ya da oncesindeki bekleyen odemeleri
 // kilitler (FOR UPDATE SKIP LOCKED) ve kimlik sirasiyla doner.
 func ListExpiredPending(ctx context.Context, q Querier, before time.Time, limit int) ([]StoredPayment, error) {
