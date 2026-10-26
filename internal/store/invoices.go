@@ -43,7 +43,7 @@ type Invoice struct {
 
 const invoiceSelect = `SELECT i.id, i.subscription_id, i.period_start, i.period_end, i.kind,
        i.amount_kurus, i.status, i.attempts, i.next_retry_at, i.paid_at, i.created_at
-  FROM invoices i`
+  FROM "ya-invoices" i`
 
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var inv Invoice
@@ -67,7 +67,7 @@ func GetInvoice(ctx context.Context, q Querier, id int64) (Invoice, error) {
 func InsertInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO invoices (subscription_id, period_start, period_end, kind, amount_kurus,
+		`INSERT INTO "ya-invoices" (subscription_id, period_start, period_end, kind, amount_kurus,
 		                       status, attempts, next_retry_at, paid_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		inv.SubscriptionID, dateText(inv.PeriodStart), dateText(inv.PeriodEnd), inv.Kind,
@@ -84,13 +84,13 @@ func InsertInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
 func AddProrationInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO invoices (subscription_id, period_start, period_end, kind, amount_kurus,
+		`INSERT INTO "ya-invoices" (subscription_id, period_start, period_end, kind, amount_kurus,
 		                       status, attempts, next_retry_at, paid_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (subscription_id, period_start, kind) DO UPDATE
-		   SET amount_kurus = invoices.amount_kurus + EXCLUDED.amount_kurus,
+		   SET amount_kurus = "ya-invoices".amount_kurus + EXCLUDED.amount_kurus,
 		       period_end = EXCLUDED.period_end
-		   WHERE invoices.status IN ('open','failed')
+		   WHERE "ya-invoices".status IN ('open','failed')
 		 RETURNING id`,
 		inv.SubscriptionID, dateText(inv.PeriodStart), dateText(inv.PeriodEnd), inv.Kind,
 		int64(inv.Amount), inv.Status, inv.Attempts, inv.NextRetryAt, inv.PaidAt,
@@ -103,7 +103,7 @@ func AddProrationInvoice(ctx context.Context, q Querier, inv Invoice) (int64, er
 
 func InsertInvoiceIfAbsent(ctx context.Context, q Querier, inv Invoice) (bool, error) {
 	tag, err := q.Exec(ctx,
-		`INSERT INTO invoices (subscription_id, period_start, period_end, kind, amount_kurus,
+		`INSERT INTO "ya-invoices" (subscription_id, period_start, period_end, kind, amount_kurus,
 		                       status, attempts, next_retry_at, paid_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 ON CONFLICT (subscription_id, period_start, kind) DO NOTHING`,
@@ -121,8 +121,8 @@ func LockInvoiceWithSubscription(ctx context.Context, q Querier, id int64) (Invo
 		`SELECT i.id, i.subscription_id, i.period_start, i.period_end, i.kind,
 		        i.amount_kurus, i.status, i.attempts, i.next_retry_at, i.paid_at, i.created_at,
 		        s.status
-		   FROM invoices i
-		   JOIN subscriptions s ON s.id = i.subscription_id
+		   FROM "ya-invoices" i
+		   JOIN "ya-subscriptions" s ON s.id = i.subscription_id
 		  WHERE i.id = $1
 		  FOR UPDATE OF i, s`, id)
 	var inv Invoice
@@ -143,7 +143,7 @@ func LockInvoiceWithSubscription(ctx context.Context, q Querier, id int64) (Invo
 
 func MarkInvoicePaid(ctx context.Context, q Querier, id int64, at time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE invoices SET status = 'paid', paid_at = $2, attempts = 0, next_retry_at = NULL
+		`UPDATE "ya-invoices" SET status = 'paid', paid_at = $2, attempts = 0, next_retry_at = NULL
 		 WHERE id = $1`, id, at,
 	)
 	if err != nil {
@@ -157,7 +157,7 @@ func MarkInvoicePaid(ctx context.Context, q Querier, id int64, at time.Time) err
 
 func MarkInvoiceFailed(ctx context.Context, q Querier, id int64, attempts int, nextRetry *time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE invoices SET status = 'failed', attempts = $2, next_retry_at = $3 WHERE id = $1`,
+		`UPDATE "ya-invoices" SET status = 'failed', attempts = $2, next_retry_at = $3 WHERE id = $1`,
 		id, attempts, nextRetry,
 	)
 	if err != nil {
@@ -172,7 +172,7 @@ func MarkInvoiceFailed(ctx context.Context, q Querier, id int64, attempts int, n
 func DueRetryInvoices(ctx context.Context, q Querier, now time.Time) ([]Invoice, error) {
 	rows, err := q.Query(ctx,
 		invoiceSelect+`
-		 JOIN subscriptions s ON s.id = i.subscription_id
+		 JOIN "ya-subscriptions" s ON s.id = i.subscription_id
 		 WHERE i.status IN ('open','failed') AND i.next_retry_at IS NOT NULL
 		   AND i.next_retry_at <= $1 AND s.status IN ('active','past_due')
 		 ORDER BY i.next_retry_at, i.id
@@ -207,7 +207,7 @@ type InvoiceFilter struct {
 }
 
 func ListInvoices(ctx context.Context, q Querier, f InvoiceFilter) ([]Invoice, error) {
-	query := invoiceSelect + ` JOIN subscriptions s ON s.id = i.subscription_id WHERE TRUE`
+	query := invoiceSelect + ` JOIN "ya-subscriptions" s ON s.id = i.subscription_id WHERE TRUE`
 	args := []any{}
 	if f.SubscriptionID != nil {
 		args = append(args, *f.SubscriptionID)
@@ -284,7 +284,7 @@ func PaidInvoicesOnDay(ctx context.Context, q Querier, start, end time.Time) ([]
 func StartBillingRun(ctx context.Context, q Querier, periodStart time.Time) (int64, bool, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO billing_runs (period_start) VALUES ($1)
+		`INSERT INTO "ya-billing_runs" (period_start) VALUES ($1)
 		 ON CONFLICT (period_start) DO NOTHING RETURNING id`,
 		dateText(periodStart),
 	).Scan(&id)
@@ -299,7 +299,7 @@ func StartBillingRun(ctx context.Context, q Querier, periodStart time.Time) (int
 
 func FinishBillingRun(ctx context.Context, q Querier, id int64, invoicesCreated int) error {
 	_, err := q.Exec(ctx,
-		`UPDATE billing_runs SET finished_at = now(), invoices_created = $2 WHERE id = $1`,
+		`UPDATE "ya-billing_runs" SET finished_at = now(), invoices_created = $2 WHERE id = $1`,
 		id, invoicesCreated,
 	)
 	return err

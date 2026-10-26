@@ -94,14 +94,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, password string) error {
 
 	for _, l := range demoLots() {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO lots (code, name, capacity) VALUES ($1, $2, $3)
+			`INSERT INTO "ya-lots" (code, name, capacity) VALUES ($1, $2, $3)
 			 ON CONFLICT (code) DO NOTHING`,
 			l.Code, l.Name, l.Capacity,
 		); err != nil {
 			return fmt.Errorf("seed: otopark %s: %w", l.Code, err)
 		}
 		var lotID int64
-		if err := pool.QueryRow(ctx, `SELECT id FROM lots WHERE code = $1`, l.Code).Scan(&lotID); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT id FROM "ya-lots" WHERE code = $1`, l.Code).Scan(&lotID); err != nil {
 			return fmt.Errorf("seed: otopark %s okunamadi: %w", l.Code, err)
 		}
 
@@ -144,7 +144,7 @@ func seedDemoSubscription(ctx context.Context, pool *pgxpool.Pool, konum *time.L
 	}
 	var aktif int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM subscriptions WHERE plate = $1 AND status IN ('active','past_due')`,
+		`SELECT count(*) FROM "ya-subscriptions" WHERE plate = $1 AND status IN ('active','past_due')`,
 		*user.Plate,
 	).Scan(&aktif); err != nil {
 		return fmt.Errorf("seed: abonelik okunamadi: %w", err)
@@ -169,11 +169,11 @@ func seedDemoSubscription(ctx context.Context, pool *pgxpool.Pool, konum *time.L
 func demoUsers() []demoUser {
 	soforPlaka := "34ABC123"
 	return []demoUser{
+		{Email: "seed.ardic@ddo-case.invalid", Name: "Ardic Seed", Role: auth.RoleAdmin},
 		{Email: "surucu@parkakil.test", Name: "Surucu Demo", Role: auth.RoleDriver, Plate: &soforPlaka},
 		{Email: "gorevli@parkakil.test", Name: "Gorevli Demo", Role: auth.RoleAttendant},
 		{Email: "muhasebe@parkakil.test", Name: "Muhasebe Demo", Role: auth.RoleAccountant},
 		{Email: "mudur@parkakil.test", Name: "Mudur Demo", Role: auth.RoleManager},
-		{Email: "yonetici@parkakil.test", Name: "Yonetici Demo", Role: auth.RoleAdmin},
 	}
 }
 

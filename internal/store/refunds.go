@@ -83,7 +83,7 @@ func InsertRefund(ctx context.Context, q Querier, paymentID int64, amount tariff
 
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO refunds
+		`INSERT INTO "ya-refunds"
 		   (payment_id, amount_kurus, status, reason, idempotency_key, request_hash,
 		    provider_ref, requested_at)
 		 VALUES ($1, $2, 'pending', $3, $4, $5, $6, $7)
@@ -99,7 +99,7 @@ func InsertRefund(ctx context.Context, q Querier, paymentID int64, amount tariff
 // GetRefundByIdempotencyKey anahtarla iadeyi okur.
 func GetRefundByIdempotencyKey(ctx context.Context, q Querier, key string) (StoredRefund, error) {
 	row := q.QueryRow(ctx,
-		`SELECT `+refundColumns()+` FROM refunds WHERE idempotency_key = $1`, key)
+		`SELECT `+refundColumns()+` FROM "ya-refunds" WHERE idempotency_key = $1`, key)
 	r, err := scanRefund(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredRefund{}, ErrNotFound
@@ -114,7 +114,7 @@ func GetRefundByIdempotencyKey(ctx context.Context, q Querier, key string) (Stor
 func SumRefunds(ctx context.Context, q Querier, paymentID int64) (tariff.Kurus, error) {
 	var toplam tariff.Kurus
 	if err := q.QueryRow(ctx,
-		`SELECT COALESCE(sum(amount_kurus), 0) FROM refunds
+		`SELECT COALESCE(sum(amount_kurus), 0) FROM "ya-refunds"
 		 WHERE payment_id = $1 AND status <> 'failed'`, paymentID,
 	).Scan(&toplam); err != nil {
 		return 0, err

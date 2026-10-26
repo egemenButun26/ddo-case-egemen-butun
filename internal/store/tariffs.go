@@ -25,7 +25,7 @@ func InsertTariffVersion(ctx context.Context, q Querier, lotID int64, v tariff.V
 		validTo = &t
 	}
 	_, err = q.Exec(ctx,
-		`INSERT INTO tariff_versions (id, lot_id, valid_from, valid_to, definition)
+		`INSERT INTO "ya-tariff_versions" (id, lot_id, valid_from, valid_to, definition)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		v.ID, lotID, v.ValidFrom, validTo, def,
 	)
@@ -43,7 +43,7 @@ func TariffVersionAt(ctx context.Context, q Querier, lotID int64, at time.Time) 
 	)
 	err := q.QueryRow(ctx,
 		`SELECT id, valid_from, valid_to, definition
-		 FROM tariff_versions
+		 FROM "ya-tariff_versions"
 		 WHERE lot_id = $1 AND valid_from <= $2 AND (valid_to IS NULL OR $2 < valid_to)`,
 		lotID, at,
 	).Scan(&id, &validFrom, &validTo, &def)
@@ -64,7 +64,7 @@ func GetTariffVersion(ctx context.Context, q Querier, id string) (tariff.Version
 		def       []byte
 	)
 	err := q.QueryRow(ctx,
-		`SELECT valid_from, valid_to, definition FROM tariff_versions WHERE id = $1`,
+		`SELECT valid_from, valid_to, definition FROM "ya-tariff_versions" WHERE id = $1`,
 		id,
 	).Scan(&validFrom, &validTo, &def)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -107,7 +107,7 @@ func (o *ortam) kapat(t *testing.T, sessionID int64, at time.Time) {
 
 func (o *ortam) bekleyenleriTemizle(t *testing.T) {
 	t.Helper()
-	if _, err := o.pool.Exec(o.ctx, `DELETE FROM payments WHERE status = 'pending'`); err != nil {
+	if _, err := o.pool.Exec(o.ctx, `DELETE FROM "ya-payments" WHERE status = 'pending'`); err != nil {
 		t.Fatalf("bekleyen odemeler temizlenemedi: %v", err)
 	}
 }

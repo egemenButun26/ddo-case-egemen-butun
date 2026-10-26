@@ -66,7 +66,7 @@ func planOlustur(t *testing.T, pool *pgxpool.Pool, fiyat tariff.Kurus) string {
 func faturalar(t *testing.T, pool *pgxpool.Pool, subID int64) []store.Invoice {
 	t.Helper()
 	ctx := context.Background()
-	rows, err := pool.Query(ctx, `SELECT id FROM invoices WHERE subscription_id = $1 ORDER BY id`, subID)
+	rows, err := pool.Query(ctx, `SELECT id FROM "ya-invoices" WHERE subscription_id = $1 ORDER BY id`, subID)
 	if err != nil {
 		t.Fatalf("faturalar okunamadi: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestSubscribeCancel(t *testing.T) {
 	if _, err := svc.Subscribe(ctx, benzersiz("34SUB"), benzersiz("yok"), an(t, "2026-04-01 00:00:00")); !errors.Is(err, store.ErrPlanNotFound) {
 		t.Fatalf("olmayan plan hatasi = %v, beklenen ErrPlanNotFound", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE plans SET active = false WHERE code = $1`, plan); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE "ya-plans" SET active = false WHERE code = $1`, plan); err != nil {
 		t.Fatalf("plan pasif yapilamadi: %v", err)
 	}
 	if _, err := svc.Subscribe(ctx, benzersiz("34SUB"), plan, an(t, "2026-04-01 00:00:00")); !errors.Is(err, billingsvc.ErrInvalidPlan) {
@@ -219,7 +219,7 @@ func TestChangePlan(t *testing.T) {
 		if _, err := svc.ChangePlan(ctx, sub.ID, benzersiz("yok"), an(t, "2026-04-10 00:00:00")); !errors.Is(err, store.ErrPlanNotFound) {
 			t.Fatalf("olmayan plan hatasi = %v, beklenen ErrPlanNotFound", err)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE plans SET active = false WHERE code = $1`, pahali); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE "ya-plans" SET active = false WHERE code = $1`, pahali); err != nil {
 			t.Fatalf("plan pasif yapilamadi: %v", err)
 		}
 		if _, err := svc.ChangePlan(ctx, sub.ID, pahali, an(t, "2026-04-10 00:00:00")); !errors.Is(err, billingsvc.ErrInvalidPlan) {
@@ -296,13 +296,13 @@ func TestRunPeriodEnd(t *testing.T) {
 		t.Fatalf("ikinci calisma %d fatura uretti, beklenen 0", created)
 	}
 	var runSayisi, faturaSayisi int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM billing_runs WHERE period_start = '2026-05-01'`).Scan(&runSayisi); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM "ya-billing_runs" WHERE period_start = '2026-05-01'`).Scan(&runSayisi); err != nil {
 		t.Fatalf("billing_runs okunamadi: %v", err)
 	}
 	if runSayisi != 1 {
 		t.Fatalf("billing_runs sayisi = %d, beklenen 1", runSayisi)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM invoices WHERE period_start = '2026-05-01' AND kind = 'period'`).Scan(&faturaSayisi); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM "ya-invoices" WHERE period_start = '2026-05-01' AND kind = 'period'`).Scan(&faturaSayisi); err != nil {
 		t.Fatalf("fatura sayisi okunamadi: %v", err)
 	}
 	if faturaSayisi < 3 {
@@ -367,7 +367,7 @@ func TestRunPeriodEndConcurrent(t *testing.T) {
 		}
 	}
 	var runSayisi int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM billing_runs WHERE period_start = '2026-09-01'`).Scan(&runSayisi); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM "ya-billing_runs" WHERE period_start = '2026-09-01'`).Scan(&runSayisi); err != nil {
 		t.Fatalf("billing_runs okunamadi: %v", err)
 	}
 	if runSayisi != 1 {
@@ -478,7 +478,7 @@ func TestDunning(t *testing.T) {
 		t.Fatalf("odendi fatura tekrar hatasi = %v, beklenen ErrInvoiceAlreadyPaid", err)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE invoices SET status = 'void', paid_at = NULL WHERE id = $1`, invID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE "ya-invoices" SET status = 'void', paid_at = NULL WHERE id = $1`, invID); err != nil {
 		t.Fatalf("fatura void yapilamadi: %v", err)
 	}
 	if _, err := svc.RecordPaymentAttempt(ctx, invID, true, zaman); !errors.Is(err, billingsvc.ErrInvalidAttempts) {
@@ -493,7 +493,7 @@ func dueSubscriptions(t *testing.T, pool *pgxpool.Pool, periodStart time.Time) i
 	t.Helper()
 	var n int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM subscriptions
+		`SELECT count(*) FROM "ya-subscriptions"
 		  WHERE status IN ('active','past_due') AND current_period_start <= $1`,
 		periodStart.Format("2006-01-02"),
 	).Scan(&n); err != nil {
@@ -778,7 +778,7 @@ func oturumHazirla(t *testing.T, pool *pgxpool.Pool) int64 {
 	var eventID int64
 	at := time.Date(2026, 5, 10, 9, 0, 0, 0, time.UTC)
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO plate_events (lot_id, camera_id, camera_event_id, direction, plate_raw, plate_norm, captured_at, outcome)
+		`INSERT INTO "ya-plate_events" (lot_id, camera_id, camera_event_id, direction, plate_raw, plate_norm, captured_at, outcome)
 		 VALUES ($1, 'cam', $2, 'entry', '34MUT001', '34MUT001', $3, 'opened') RETURNING id`,
 		lotID, benzersiz("olay"), at,
 	).Scan(&eventID); err != nil {
@@ -786,7 +786,7 @@ func oturumHazirla(t *testing.T, pool *pgxpool.Pool) int64 {
 	}
 	tarifeID := benzersiz("tarife")
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO tariff_versions (id, lot_id, valid_from, definition)
+		`INSERT INTO "ya-tariff_versions" (id, lot_id, valid_from, definition)
 		 VALUES ($1, $2, $3, '{"location":"Europe/Istanbul"}')`,
 		tarifeID, lotID, at.Add(-time.Hour),
 	); err != nil {
@@ -794,7 +794,7 @@ func oturumHazirla(t *testing.T, pool *pgxpool.Pool) int64 {
 	}
 	var sessionID int64
 	if err := pool.QueryRow(ctx,
-		`INSERT INTO sessions (lot_id, plate, status, entry_event_id, entered_at, tariff_version_id)
+		`INSERT INTO "ya-sessions" (lot_id, plate, status, entry_event_id, entered_at, tariff_version_id)
 		 VALUES ($1, $2, 'open', $3, $4, $5) RETURNING id`,
 		lotID, benzersiz("34MUT"), eventID, at, tarifeID,
 	).Scan(&sessionID); err != nil {
@@ -807,7 +807,7 @@ func odemeEkle(t *testing.T, pool *pgxpool.Pool, sessionID int64, tutar int64, p
 	t.Helper()
 	ref := benzersiz("prov")
 	_, err := pool.Exec(context.Background(),
-		`INSERT INTO payments (session_id, amount_kurus, status, provider_ref, idempotency_key,
+		`INSERT INTO "ya-payments" (session_id, amount_kurus, status, provider_ref, idempotency_key,
 		                       request_hash, requested_at, paid_at, confirmed_at)
 		 VALUES ($1, $2, 'succeeded', $3, $4, $5, $6, $7, $8)`,
 		sessionID, tutar, ref, benzersiz("idem"), bytes.Repeat([]byte{0x11}, 32),
@@ -890,7 +890,7 @@ func TestReconcileDay(t *testing.T) {
 		t.Fatalf("ikinci mutabakat farkli: %+v", rapor2)
 	}
 	var adet int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM reconciliation_reports WHERE day = '2026-05-10'`).Scan(&adet); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM "ya-reconciliation_reports" WHERE day = '2026-05-10'`).Scan(&adet); err != nil {
 		t.Fatalf("rapor sayisi okunamadi: %v", err)
 	}
 	if adet != 1 {

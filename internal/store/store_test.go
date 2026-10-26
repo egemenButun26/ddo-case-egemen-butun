@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func TestSchemaObjects(t *testing.T) {
 		t.Fatalf("tablo listesi: %v", err)
 	}
 
-	for _, ad := range []string{"lots", "tariff_versions", "plate_events", "sessions", "review_items", "payments", "refunds", "debts"} {
+	for _, ad := range []string{"ya-lots", "ya-tariff_versions", "ya-plate_events", "ya-sessions", "ya-review_items", "ya-payments", "ya-refunds", "ya-debts"} {
 		if !tablolar[ad] {
 			t.Fatalf("%s tablosu yok", ad)
 		}
@@ -152,7 +153,7 @@ func TestMigrationDownUp(t *testing.T) {
 	}
 
 	var varMi bool
-	if err := db.QueryRow(`SELECT to_regclass('public.sessions') IS NOT NULL`).Scan(&varMi); err != nil {
+	if err := db.QueryRow(`SELECT to_regclass('public."ya-sessions"') IS NOT NULL`).Scan(&varMi); err != nil {
 		t.Fatalf("sessions kontrolu: %v", err)
 	}
 	if varMi {
@@ -163,13 +164,13 @@ func TestMigrationDownUp(t *testing.T) {
 		t.Fatalf("00002 up basarisiz: %v", err)
 	}
 
-	if err := db.QueryRow(`SELECT to_regclass('public.sessions') IS NOT NULL`).Scan(&varMi); err != nil {
+	if err := db.QueryRow(`SELECT to_regclass('public."ya-sessions"') IS NOT NULL`).Scan(&varMi); err != nil {
 		t.Fatalf("sessions kontrolu: %v", err)
 	}
 	if !varMi {
 		t.Fatal("up sonrasi sessions tablosu yok")
 	}
-	if err := db.QueryRow(`SELECT to_regclass('public.review_items') IS NOT NULL`).Scan(&varMi); err != nil {
+	if err := db.QueryRow(`SELECT to_regclass('public."ya-review_items"') IS NOT NULL`).Scan(&varMi); err != nil {
 		t.Fatalf("review_items kontrolu: %v", err)
 	}
 	if !varMi {
@@ -185,8 +186,8 @@ func TestMigrationDownUp(t *testing.T) {
 		t.Fatalf("up sonrasi sessions_one_open_per_plate dizini yok (%d)", indexSayisi)
 	}
 
-	for _, ad := range []string{"payments", "refunds", "debts"} {
-		if err := db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, "public."+ad).Scan(&varMi); err != nil {
+	for _, ad := range []string{"ya-payments", "ya-refunds", "ya-debts"} {
+		if err := db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, "public."+strconv.Quote(ad)).Scan(&varMi); err != nil {
 			t.Fatalf("%s kontrolu: %v", ad, err)
 		}
 		if !varMi {
@@ -753,7 +754,7 @@ func TestReviewInsert(t *testing.T) {
 	var suggested, runner *int64
 	var confidence int
 	if err := pool.QueryRow(ctx,
-		`SELECT suggested_session_id, runner_up_session_id, confidence FROM review_items WHERE id = $1`, id1,
+		`SELECT suggested_session_id, runner_up_session_id, confidence FROM "ya-review_items" WHERE id = $1`, id1,
 	).Scan(&suggested, &runner, &confidence); err != nil {
 		t.Fatalf("inceleme okunamadi: %v", err)
 	}
@@ -779,7 +780,7 @@ func TestReviewInsert(t *testing.T) {
 	var c2, rc2 int
 	if err := pool.QueryRow(ctx,
 		`SELECT suggested_session_id, runner_up_session_id, confidence, runner_up_confidence
-		 FROM review_items WHERE id = $1`, id2,
+		 FROM "ya-review_items" WHERE id = $1`, id2,
 	).Scan(&s2, &r2, &c2, &rc2); err != nil {
 		t.Fatalf("inceleme okunamadi: %v", err)
 	}

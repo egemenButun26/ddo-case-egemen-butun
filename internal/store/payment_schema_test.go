@@ -110,7 +110,7 @@ func odemeEkle(t *testing.T, pool *pgxpool.Pool, s odemeSatiri) (int64, error) {
 	}
 	var id int64
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO payments (session_id, amount_kurus, status, provider_ref, idempotency_key,
+		`INSERT INTO "ya-payments" (session_id, amount_kurus, status, provider_ref, idempotency_key,
 		                       request_hash, late_approval, requested_at, paid_at, confirmed_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
 		s.sessionID, s.amount, s.status, s.providerRef, s.idempotency, s.requestHash,
@@ -302,7 +302,7 @@ func TestPaymentsSemasi(t *testing.T) {
 		kisitHatasi(t, err, "23505", "payments_one_pending_per_session")
 
 		if _, err := pool.Exec(context.Background(),
-			`UPDATE payments SET status = 'timed_out' WHERE id = $1`, ilkID,
+			`UPDATE "ya-payments" SET status = 'timed_out' WHERE id = $1`, ilkID,
 		); err != nil {
 			t.Fatalf("ilk odeme timed_out yapilamadi: %v", err)
 		}
@@ -316,7 +316,7 @@ func TestPaymentsSemasi(t *testing.T) {
 		paid := testZaman(2)
 		confirmed := testZaman(3)
 		if _, err := pool.Exec(context.Background(),
-			`UPDATE payments SET status = 'succeeded', paid_at = $2, confirmed_at = $3
+			`UPDATE "ya-payments" SET status = 'succeeded', paid_at = $2, confirmed_at = $3
 			 WHERE session_id = $1 AND status = 'pending'`,
 			sid, paid, confirmed,
 		); err != nil {
@@ -364,7 +364,7 @@ func iadeEkle(t *testing.T, pool *pgxpool.Pool, s iadeSatiri) (int64, error) {
 	}
 	var id int64
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO refunds (payment_id, amount_kurus, status, reason, idempotency_key,
+		`INSERT INTO "ya-refunds" (payment_id, amount_kurus, status, reason, idempotency_key,
 		                      request_hash, provider_ref, requested_at, completed_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		s.paymentID, s.amount, s.status, s.reason, s.idempotency, s.requestHash,
@@ -561,7 +561,7 @@ func borcEkle(t *testing.T, pool *pgxpool.Pool, s borcSatiri) (int64, error) {
 	t.Helper()
 	var id int64
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO debts (session_id, lot_id, plate, amount_kurus, paid_kurus, status, closed_at)
+		`INSERT INTO "ya-debts" (session_id, lot_id, plate, amount_kurus, paid_kurus, status, closed_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 		s.sessionID, s.lotID, s.plate, s.amount, s.paid, s.status, zamanDeger(s.closedAt),
 	).Scan(&id)
@@ -582,7 +582,7 @@ func TestDebtsSemasi(t *testing.T) {
 		}
 		var remaining int64
 		if err := pool.QueryRow(context.Background(),
-			`SELECT remaining_kurus FROM debts WHERE id = $1`, id,
+			`SELECT remaining_kurus FROM "ya-debts" WHERE id = $1`, id,
 		).Scan(&remaining); err != nil {
 			t.Fatalf("remaining_kurus okunamadi: %v", err)
 		}
@@ -702,7 +702,7 @@ func TestDebtsSemasi(t *testing.T) {
 	t.Run("remaining_kurus dogrudan yazma", func(t *testing.T) {
 		sid, lotID := oturumHazirlaPlaka(t, pool, "34DEBT08")
 		_, err := pool.Exec(context.Background(),
-			`INSERT INTO debts (session_id, lot_id, plate, amount_kurus, paid_kurus, remaining_kurus, status)
+			`INSERT INTO "ya-debts" (session_id, lot_id, plate, amount_kurus, paid_kurus, remaining_kurus, status)
 			 VALUES ($1, $2, $3, 1000, 0, 1, 'open')`,
 			sid, lotID, "34DEBT08",
 		)
@@ -719,7 +719,7 @@ func TestDebtsSemasi(t *testing.T) {
 func tabloVarMi(t *testing.T, db *sql.DB, ad string) bool {
 	t.Helper()
 	var varMi bool
-	if err := db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, "public."+ad).Scan(&varMi); err != nil {
+	if err := db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, "public."+strconv.Quote(ad)).Scan(&varMi); err != nil {
 		t.Fatalf("%s tablosu kontrol edilemedi: %v", ad, err)
 	}
 	return varMi
@@ -806,7 +806,7 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if err := goose.DownTo(db, ".", 3); err != nil {
 		t.Fatalf("goose.DownTo(3) basarisiz: %v", err)
 	}
-	for _, ad := range []string{"payments", "refunds", "debts"} {
+	for _, ad := range []string{"ya-payments", "ya-refunds", "ya-debts"} {
 		if tabloVarMi(t, db, ad) {
 			t.Fatalf("down sonrasi %s tablosu hala var", ad)
 		}
@@ -818,7 +818,7 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if err := goose.Up(db, "."); err != nil {
 		t.Fatalf("yeniden goose.Up basarisiz: %v", err)
 	}
-	for _, ad := range []string{"payments", "refunds", "debts"} {
+	for _, ad := range []string{"ya-payments", "ya-refunds", "ya-debts"} {
 		if !tabloVarMi(t, db, ad) {
 			t.Fatalf("up sonrasi %s tablosu yok", ad)
 		}

@@ -139,7 +139,7 @@ func InsertPayment(ctx context.Context, q Querier, sessionID int64, idempotencyK
 
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO payments
+		`INSERT INTO "ya-payments"
 		   (session_id, amount_kurus, status, provider_ref, idempotency_key, request_hash,
 		    late_approval, requested_at, paid_at, confirmed_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9)
@@ -156,7 +156,7 @@ func InsertPayment(ctx context.Context, q Querier, sessionID int64, idempotencyK
 // GetPaymentByIdempotencyKey anahtarla odemeyi okur.
 func GetPaymentByIdempotencyKey(ctx context.Context, q Querier, key string) (StoredPayment, error) {
 	row := q.QueryRow(ctx,
-		`SELECT `+paymentColumns()+` FROM payments WHERE idempotency_key = $1`, key)
+		`SELECT `+paymentColumns()+` FROM "ya-payments" WHERE idempotency_key = $1`, key)
 	sp, err := scanPayment(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredPayment{}, ErrNotFound
@@ -170,7 +170,7 @@ func GetPaymentByIdempotencyKey(ctx context.Context, q Querier, key string) (Sto
 // GetPaymentByProviderRef saglayici referansiyla odemeyi okur.
 func GetPaymentByProviderRef(ctx context.Context, q Querier, ref string) (StoredPayment, error) {
 	row := q.QueryRow(ctx,
-		`SELECT `+paymentColumns()+` FROM payments WHERE provider_ref = $1`, ref)
+		`SELECT `+paymentColumns()+` FROM "ya-payments" WHERE provider_ref = $1`, ref)
 	sp, err := scanPayment(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredPayment{}, ErrNotFound
@@ -184,7 +184,7 @@ func GetPaymentByProviderRef(ctx context.Context, q Querier, ref string) (Stored
 // LockPaymentByProviderRef odemeyi islem boyunca kilitler.
 func LockPaymentByProviderRef(ctx context.Context, q Querier, ref string) (StoredPayment, error) {
 	row := q.QueryRow(ctx,
-		`SELECT `+paymentColumns()+` FROM payments WHERE provider_ref = $1 FOR UPDATE`, ref)
+		`SELECT `+paymentColumns()+` FROM "ya-payments" WHERE provider_ref = $1 FOR UPDATE`, ref)
 	sp, err := scanPayment(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredPayment{}, ErrNotFound
@@ -198,7 +198,7 @@ func LockPaymentByProviderRef(ctx context.Context, q Querier, ref string) (Store
 // LockPaymentByID odemeyi kimligiyle kilitler.
 func LockPaymentByID(ctx context.Context, q Querier, id int64) (StoredPayment, error) {
 	row := q.QueryRow(ctx,
-		`SELECT `+paymentColumns()+` FROM payments WHERE id = $1 FOR UPDATE`, id)
+		`SELECT `+paymentColumns()+` FROM "ya-payments" WHERE id = $1 FOR UPDATE`, id)
 	sp, err := scanPayment(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoredPayment{}, ErrNotFound
@@ -213,7 +213,7 @@ func LockPaymentByID(ctx context.Context, q Querier, id int64) (StoredPayment, e
 func ListSessionPayments(ctx context.Context, q Querier, sessionID int64) ([]StoredPayment, error) {
 	rows, err := q.Query(ctx,
 		`SELECT `+paymentColumns()+`
-		 FROM payments WHERE session_id = $1
+		 FROM "ya-payments" WHERE session_id = $1
 		 ORDER BY requested_at, id`, sessionID)
 	if err != nil {
 		return nil, err
@@ -228,7 +228,7 @@ func UpdatePaymentStatus(ctx context.Context, q Querier, id int64, p payment.Pay
 		return err
 	}
 	tag, err := q.Exec(ctx,
-		`UPDATE payments
+		`UPDATE "ya-payments"
 		 SET status = $2, paid_at = $3, confirmed_at = $4, late_approval = $5, updated_at = now()
 		 WHERE id = $1 AND (
 		   ($2 = 'succeeded' AND status IN ('pending', 'timed_out'))
@@ -253,7 +253,7 @@ func ListPayments(ctx context.Context, q Querier, afterID int64, limit int) ([]S
 	}
 	rows, err := q.Query(ctx,
 		`SELECT `+paymentColumns()+`
-		 FROM payments WHERE id > $1
+		 FROM "ya-payments" WHERE id > $1
 		 ORDER BY id LIMIT $2`, afterID, limit)
 	if err != nil {
 		return nil, err
@@ -269,7 +269,7 @@ func ListExpiredPending(ctx context.Context, q Querier, before time.Time, limit 
 	}
 	rows, err := q.Query(ctx,
 		`SELECT `+paymentColumns()+`
-		 FROM payments
+		 FROM "ya-payments"
 		 WHERE status = 'pending' AND requested_at <= $1
 		 ORDER BY requested_at, id
 		 LIMIT $2

@@ -646,7 +646,7 @@ func TestT5HttpPeriodEnd(t *testing.T) {
 
 	var periodInvoice int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM invoices WHERE subscription_id = $1 AND kind = 'period' AND period_start = '2031-02-01'`,
+		`SELECT count(*) FROM "ya-invoices" WHERE subscription_id = $1 AND kind = 'period' AND period_start = '2031-02-01'`,
 		sub.ID,
 	).Scan(&periodInvoice); err != nil {
 		t.Fatalf("fatura sayisi: %v", err)
@@ -849,7 +849,7 @@ func TestT5HttpReconciliation(t *testing.T) {
 	}
 	var settlementCount int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM provider_settlements WHERE day = '2033-05-10'`,
+		`SELECT count(*) FROM "ya-provider_settlements" WHERE day = '2033-05-10'`,
 	).Scan(&settlementCount); err != nil {
 		t.Fatalf("mutabakat satiri sayisi: %v", err)
 	}

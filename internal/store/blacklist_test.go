@@ -58,7 +58,7 @@ func TestOpsBlacklistStore(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(ctx,
-		`UPDATE blacklist SET active = false WHERE id = $1`, entry.ID); pgKodu(err) != "23514" {
+		`UPDATE "ya-blacklist" SET active = false WHERE id = $1`, entry.ID); pgKodu(err) != "23514" {
 		t.Fatalf("removed_at olmadan pasif hata = %v (kod %q), beklenen 23514", err, pgKodu(err))
 	}
 
@@ -88,7 +88,7 @@ func TestOpsBlacklistStore(t *testing.T) {
 	var active, removed int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FILTER (WHERE active), count(*) FILTER (WHERE NOT active)
-		 FROM blacklist WHERE plate = '34ABC123'`,
+		 FROM "ya-blacklist" WHERE plate = '34ABC123'`,
 	).Scan(&active, &removed); err != nil {
 		t.Fatalf("kara liste sayimi okunamadi: %v", err)
 	}

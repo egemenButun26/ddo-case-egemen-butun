@@ -30,7 +30,7 @@ type StoredSession struct {
 func InsertSession(ctx context.Context, q Querier, lotID int64, plate string, entryEventID int64, enteredAt time.Time, tariffVersionID string) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO sessions (lot_id, plate, status, entry_event_id, entered_at, tariff_version_id)
+		`INSERT INTO "ya-sessions" (lot_id, plate, status, entry_event_id, entered_at, tariff_version_id)
 		 VALUES ($1, $2, 'open', $3, $4, $5)
 		 RETURNING id`,
 		lotID, plate, entryEventID, enteredAt, tariffVersionID,
@@ -52,7 +52,7 @@ func GetSession(ctx context.Context, q Querier, id int64) (StoredSession, error)
 	err := q.QueryRow(ctx,
 		`SELECT id, lot_id, plate, status, entry_event_id, entered_at,
 		        exit_event_id, exited_at, tariff_version_id, amount_kurus
-		 FROM sessions WHERE id = $1`,
+		 FROM "ya-sessions" WHERE id = $1`,
 		id,
 	).Scan(&s.ID, &s.LotID, &s.Plate, &s.Status, &s.EntryEventID, &s.EnteredAt,
 		&exitID, &exited, &s.TariffVersionID, &amount)
@@ -77,7 +77,7 @@ func GetSession(ctx context.Context, q Querier, id int64) (StoredSession, error)
 // ListOpenSessions, otoparkin acik oturumlarini kimlik sirasiyla doner.
 func ListOpenSessions(ctx context.Context, q Querier, lotID int64) ([]session.OpenSession, error) {
 	rows, err := q.Query(ctx,
-		`SELECT id, plate, entered_at FROM sessions
+		`SELECT id, plate, entered_at FROM "ya-sessions"
 		 WHERE lot_id = $1 AND status = 'open' ORDER BY id`,
 		lotID,
 	)
@@ -104,7 +104,7 @@ func ListOpenSessions(ctx context.Context, q Querier, lotID int64) ([]session.Op
 // ListRecentClosed, around cevresindeki pencerede kapanan oturumlari doner.
 func ListRecentClosed(ctx context.Context, q Querier, lotID int64, around time.Time, window time.Duration) ([]session.ClosedSession, error) {
 	rows, err := q.Query(ctx,
-		`SELECT id, plate, exited_at FROM sessions
+		`SELECT id, plate, exited_at FROM "ya-sessions"
 		 WHERE lot_id = $1 AND status = 'closed'
 		   AND exited_at BETWEEN $2 AND $3
 		 ORDER BY id`,
@@ -133,7 +133,7 @@ func ListRecentClosed(ctx context.Context, q Querier, lotID int64, around time.T
 // ListClosedEndingAfter, at aninda ya da sonrasinda kapanan kapali oturumlari doner.
 func ListClosedEndingAfter(ctx context.Context, q Querier, lotID int64, at time.Time) ([]session.ClosedSpan, error) {
 	rows, err := q.Query(ctx,
-		`SELECT id, plate, entered_at, exited_at FROM sessions
+		`SELECT id, plate, entered_at, exited_at FROM "ya-sessions"
 		 WHERE lot_id = $1 AND status = 'closed'
 		   AND exited_at >= $2
 		 ORDER BY id`,
@@ -167,7 +167,7 @@ func CloseSession(ctx context.Context, q Querier, id, exitEventID int64, exitedA
 		quoteArg = quote
 	}
 	tag, err := q.Exec(ctx,
-		`UPDATE sessions
+		`UPDATE "ya-sessions"
 		 SET status = 'closed', exit_event_id = $2, exited_at = $3, amount_kurus = $4,
 		     quote = $5, updated_at = now()
 		 WHERE id = $1 AND status = 'open'`,
@@ -186,7 +186,7 @@ func CloseSession(ctx context.Context, q Querier, id, exitEventID int64, exitedA
 func CountOpenSessions(ctx context.Context, q Querier, lotID int64, plate string) (int, error) {
 	var n int
 	err := q.QueryRow(ctx,
-		`SELECT count(*) FROM sessions WHERE lot_id = $1 AND plate = $2 AND status = 'open'`,
+		`SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND plate = $2 AND status = 'open'`,
 		lotID, plate,
 	).Scan(&n)
 	if err != nil {

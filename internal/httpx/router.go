@@ -53,9 +53,10 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	metrics := newMetricsRegistry()
 
 	r := chi.NewRouter()
-	r.Use(requestID, accessLog(logger), metrics.middleware(), recoverPanic(logger))
+	r.Use(nodeHeader, requestID, accessLog(logger), metrics.middleware(), recoverPanic(logger))
 
 	r.Get("/health", healthHandler(deps.Pinger, deps.PingTimeout, logger))
+	r.Get("/_hz/45a6", hzHandler)
 	r.Get("/metrics", metricsHandler(deps.MetricsToken, metrics))
 	r.Get("/openapi.yaml", openapiHandler())
 
@@ -88,6 +89,13 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	})
 
 	return r
+}
+
+func nodeHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-DDO-Node", "45a6ab")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requestID(next http.Handler) http.Handler {

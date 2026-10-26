@@ -37,7 +37,7 @@ func TestBillingSchema(t *testing.T) {
 		tablolar[ad] = true
 	}
 	rows.Close()
-	for _, ad := range []string{"plans", "subscriptions", "invoices", "billing_runs", "provider_settlements", "reconciliation_reports"} {
+	for _, ad := range []string{"ya-plans", "ya-subscriptions", "ya-invoices", "ya-billing_runs", "ya-provider_settlements", "ya-reconciliation_reports"} {
 		if !tablolar[ad] {
 			t.Fatalf("%s tablosu yok", ad)
 		}
@@ -183,7 +183,7 @@ func TestBillingSchema(t *testing.T) {
 	}
 	var adet int
 	var fark int64
-	if err := pool.QueryRow(ctx, `SELECT count(*), max(diff) FROM reconciliation_reports WHERE day = $1`, raporGunu.Format("2006-01-02")).Scan(&adet, &fark); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*), max(diff) FROM "ya-reconciliation_reports" WHERE day = $1`, raporGunu.Format("2006-01-02")).Scan(&adet, &fark); err != nil {
 		t.Fatalf("rapor okunamadi: %v", err)
 	}
 	if adet != 1 || fark != -50 {
@@ -229,7 +229,7 @@ func TestMigrationAbonelikTekrar(t *testing.T) {
 	if err := goose.DownTo(db, ".", 6); err != nil {
 		t.Fatalf("goose.DownTo(6) basarisiz: %v", err)
 	}
-	for _, ad := range []string{"plans", "subscriptions", "invoices", "billing_runs", "provider_settlements", "reconciliation_reports"} {
+	for _, ad := range []string{"ya-plans", "ya-subscriptions", "ya-invoices", "ya-billing_runs", "ya-provider_settlements", "ya-reconciliation_reports"} {
 		if tabloVarMi(t, db, ad) {
 			t.Fatalf("down sonrasi %s tablosu hala var", ad)
 		}
@@ -238,7 +238,7 @@ func TestMigrationAbonelikTekrar(t *testing.T) {
 	if err := goose.Up(db, "."); err != nil {
 		t.Fatalf("yeniden goose.Up basarisiz: %v", err)
 	}
-	for _, ad := range []string{"plans", "subscriptions", "invoices", "billing_runs", "provider_settlements", "reconciliation_reports"} {
+	for _, ad := range []string{"ya-plans", "ya-subscriptions", "ya-invoices", "ya-billing_runs", "ya-provider_settlements", "ya-reconciliation_reports"} {
 		if !tabloVarMi(t, db, ad) {
 			t.Fatalf("up sonrasi %s tablosu yok", ad)
 		}

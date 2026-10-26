@@ -83,7 +83,7 @@ func TestOpsArkaPlanDonguleri(t *testing.T) {
 
 	var driftSayisi int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM counter_drifts WHERE lot_id = $1`, driftLot).Scan(&driftSayisi); err != nil {
+		`SELECT count(*) FROM "ya-counter_drifts" WHERE lot_id = $1`, driftLot).Scan(&driftSayisi); err != nil {
 		t.Fatalf("kayma kayitlari okunamadi: %v", err)
 	}
 	if driftSayisi < 1 {

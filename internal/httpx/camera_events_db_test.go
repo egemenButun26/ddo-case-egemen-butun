@@ -149,11 +149,11 @@ func TestCameraEventHTTPAkis(t *testing.T) {
 
 	var olaySayisi, oturumSayisi int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID).Scan(&olaySayisi); err != nil {
+		`SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID).Scan(&olaySayisi); err != nil {
 		t.Fatalf("olay sayisi okunamadi: %v", err)
 	}
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID).Scan(&oturumSayisi); err != nil {
+		`SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID).Scan(&oturumSayisi); err != nil {
 		t.Fatalf("oturum sayisi okunamadi: %v", err)
 	}
 	if olaySayisi != 2 {
@@ -207,7 +207,7 @@ func TestCameraEventHTTPEszamanli(t *testing.T) {
 
 	var acik int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID).Scan(&acik); err != nil {
+		`SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID).Scan(&acik); err != nil {
 		t.Fatalf("acik oturum sayisi okunamadi: %v", err)
 	}
 	if acik != 1 {
@@ -233,11 +233,11 @@ func TestCameraEventHTTPYetkisizYazmaz(t *testing.T) {
 
 	var olaySayisi, oturumSayisi int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID).Scan(&olaySayisi); err != nil {
+		`SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID).Scan(&olaySayisi); err != nil {
 		t.Fatalf("olay sayisi okunamadi: %v", err)
 	}
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID).Scan(&oturumSayisi); err != nil {
+		`SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID).Scan(&oturumSayisi); err != nil {
 		t.Fatalf("oturum sayisi okunamadi: %v", err)
 	}
 	if olaySayisi != 0 {

@@ -37,7 +37,7 @@ func AppendAudit(ctx context.Context, q Querier, entry AuditEntry) error {
 		requestID = entry.RequestID
 	}
 	_, err = q.Exec(ctx,
-		`INSERT INTO audit_log
+		`INSERT INTO "ya-audit_log"
 		 (actor_user_id, actor_kind, action, entity, entity_id, old_value, new_value, request_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		entry.ActorUserID, entry.ActorKind, entry.Action, entry.Entity, entry.EntityID,

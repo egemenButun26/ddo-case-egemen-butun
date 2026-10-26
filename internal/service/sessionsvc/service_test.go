@@ -161,7 +161,7 @@ func incelemeOku(t *testing.T, pool *pgxpool.Pool, eventID int64) incelemeSatiri
 	t.Helper()
 	var s incelemeSatiri
 	if err := pool.QueryRow(context.Background(),
-		`SELECT reason, confidence, suggested_session_id FROM review_items WHERE event_id = $1`,
+		`SELECT reason, confidence, suggested_session_id FROM "ya-review_items" WHERE event_id = $1`,
 		eventID,
 	).Scan(&s.Reason, &s.Confidence, &s.SuggestedID); err != nil {
 		t.Fatalf("inceleme okunamadi: %v", err)
@@ -226,10 +226,10 @@ func TestKapasiteDolu(t *testing.T) {
 	if r := incelemeOku(t, pool, ucuncu.EventID); r.Reason != session.ReasonCapacityFull {
 		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonCapacityFull)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 2 {
 		t.Fatalf("oturum sayisi = %d, beklenen 2", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 2 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 2", n)
 	}
 
@@ -259,7 +259,7 @@ func TestKapasiteDolu(t *testing.T) {
 	if sonra.Outcome != session.OutcomeOpened {
 		t.Fatalf("cikis sonrasi giris = %q, beklenen opened", sonra.Outcome)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 2 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 2", n)
 	}
 }
@@ -308,14 +308,14 @@ func TestEsZamanli50GirisKapasite(t *testing.T) {
 	if inceleme != 40 {
 		t.Fatalf("review sayisi = %d, beklenen 40", inceleme)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 10 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 10 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 10", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM review_items WHERE lot_id = $1 AND reason = $2`,
+	if n := say(t, pool, `SELECT count(*) FROM "ya-review_items" WHERE lot_id = $1 AND reason = $2`,
 		lotID, session.ReasonCapacityFull); n != 40 {
 		t.Fatalf("capacity_full inceleme sayisi = %d, beklenen 40", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 50 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 50 {
 		t.Fatalf("olay sayisi = %d, beklenen 50", n)
 	}
 }
@@ -353,10 +353,10 @@ func TestGecGirisKapaliOturumOncesi(t *testing.T) {
 	if r.SuggestedID == nil || *r.SuggestedID != kapanis.SessionID {
 		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, kapanis.SessionID)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("oturum sayisi = %d, beklenen 1", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 0 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 0", n)
 	}
 
@@ -368,10 +368,10 @@ func TestGecGirisKapaliOturumOncesi(t *testing.T) {
 	if sonra.Outcome != session.OutcomeOpened {
 		t.Fatalf("sonraki giris sonucu = %q, beklenen opened", sonra.Outcome)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 2 {
 		t.Fatalf("oturum sayisi = %d, beklenen 2", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -404,10 +404,10 @@ func TestKarisiklikAnahtariGiris(t *testing.T) {
 	if r.SuggestedID == nil || *r.SuggestedID != ilk.SessionID {
 		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, ilk.SessionID)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("oturum sayisi = %d, beklenen 1", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -457,7 +457,7 @@ func TestEsZamanli50GirisAyniPlaka(t *testing.T) {
 		}
 	}
 
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 50 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 50 {
 		t.Fatalf("plate_events satir sayisi = %d, beklenen 50", n)
 	}
 }
@@ -474,7 +474,7 @@ func TestEsZamanli50GirisKarisikOkuma(t *testing.T) {
 	})
 
 	if n := say(t, pool,
-		`SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+		`SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -495,10 +495,10 @@ func TestAyniKameraOlayiTekrar(t *testing.T) {
 		return svc.HandleEvent(context.Background(), ev)
 	})
 
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("plate_events satir sayisi = %d, beklenen 1", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("oturum sayisi = %d, beklenen 1", n)
 	}
 
@@ -529,7 +529,7 @@ func TestSirasizCikisOnceGelir(t *testing.T) {
 	if cikisSonuc.Outcome != session.OutcomeOrphanExit {
 		t.Fatalf("cikis sonucu = %q, beklenen orphan_exit", cikisSonuc.Outcome)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 0", n)
 	}
 
@@ -608,7 +608,7 @@ func TestCikisGiristenOnce(t *testing.T) {
 	if r := incelemeOku(t, pool, sonuc.EventID); r.Reason != session.ReasonExitBeforeEntry {
 		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonExitBeforeEntry)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -641,7 +641,7 @@ func TestDusukGuvenCikis(t *testing.T) {
 	if r.SuggestedID == nil || *r.SuggestedID != girisSonuc.SessionID {
 		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, girisSonuc.SessionID)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -665,7 +665,7 @@ func TestBicimsizOkumaCikis(t *testing.T) {
 	if r := incelemeOku(t, pool, sonuc.EventID); r.Reason != session.ReasonInvalidFormat {
 		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonInvalidFormat)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -694,10 +694,10 @@ func TestGecersizPlakaGiris(t *testing.T) {
 	if r := incelemeOku(t, pool, bos.EventID); r.Reason != session.ReasonEmptyRead {
 		t.Fatalf("bos plaka nedeni = %q", r.Reason)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("oturum sayisi = %d, beklenen 0", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM review_items WHERE lot_id = $1`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-review_items" WHERE lot_id = $1`, lotID); n != 2 {
 		t.Fatalf("inceleme sayisi = %d, beklenen 2", n)
 	}
 }
@@ -718,7 +718,7 @@ func TestTarifeYokGiris(t *testing.T) {
 	if r := incelemeOku(t, pool, sonuc.EventID); r.Reason != session.ReasonNoTariff {
 		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonNoTariff)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("oturum sayisi = %d, beklenen 0", n)
 	}
 }
@@ -825,7 +825,7 @@ func TestNormalAkis(t *testing.T) {
 
 	var quote []byte
 	if err := pool.QueryRow(context.Background(),
-		`SELECT quote FROM sessions WHERE id = $1`, sonuc.SessionID).Scan(&quote); err != nil {
+		`SELECT quote FROM "ya-sessions" WHERE id = $1`, sonuc.SessionID).Scan(&quote); err != nil {
 		t.Fatalf("quote okunamadi: %v", err)
 	}
 	if len(quote) == 0 {
@@ -873,7 +873,7 @@ func TestTekrarCikis(t *testing.T) {
 	if s.Status != "closed" {
 		t.Fatalf("durum = %q, beklenen closed", s.Status)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -927,7 +927,7 @@ func TestGecersizOlay(t *testing.T) {
 		t.Fatalf("bos kamera hatasi = %v, beklenen ErrInvalidEvent", err)
 	}
 
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("gecersiz olay yazildi: %d satir", n)
 	}
 }
@@ -1027,7 +1027,7 @@ func TestCokUzunOturum(t *testing.T) {
 	if s.Status != "open" {
 		t.Fatalf("oturum durumu = %q, beklenen open", s.Status)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 2 {
 		t.Fatalf("olay sayisi = %d, beklenen 2", n)
 	}
 	if r := incelemeOku(t, pool, cikisSonuc.EventID); r.Reason != session.ReasonCloseFailed {
@@ -1068,7 +1068,7 @@ func TestGecGirisKapaliOturum(t *testing.T) {
 	if gecSonuc.SessionID != kapanis.SessionID {
 		t.Fatalf("gec giris oturumu = %d, beklenen kapali oturum %d", gecSonuc.SessionID, kapanis.SessionID)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 0 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 0", n)
 	}
 
@@ -1092,7 +1092,7 @@ func TestGecGirisKapaliOturum(t *testing.T) {
 	if s.AmountKurus == nil || *s.AmountKurus != 3000 {
 		t.Fatalf("oturum tutari = %v, beklenen 3000", s.AmountKurus)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -1134,7 +1134,7 @@ func TestGecGirisAcikOturumdanOnce(t *testing.T) {
 	if r.SuggestedID == nil || *r.SuggestedID != girisSonuc.SessionID {
 		t.Fatalf("onerilen oturum = %v, beklenen %d", r.SuggestedID, girisSonuc.SessionID)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum sayisi = %d, beklenen 1", n)
 	}
 }
@@ -1163,10 +1163,10 @@ func TestOlayCakismasiFarkliOtopark(t *testing.T) {
 	if _, err := svc.HandleEvent(context.Background(), evB); !errors.Is(err, sessionsvc.ErrEventConflict) {
 		t.Fatalf("lot B hatasi = %v, beklenen ErrEventConflict", err)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotB); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotB); n != 0 {
 		t.Fatalf("lot B olay sayisi = %d, beklenen 0", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotB); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotB); n != 0 {
 		t.Fatalf("lot B oturum sayisi = %d, beklenen 0", n)
 	}
 }
@@ -1221,10 +1221,10 @@ func TestOlayCakismasiFarkliIcerik(t *testing.T) {
 	if _, err := svc.HandleEvent(context.Background(), yanlisLot); !errors.Is(err, sessionsvc.ErrEventConflict) {
 		t.Fatalf("farkli lot_id hatasi = %v, beklenen ErrEventConflict", err)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotB); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotB); n != 0 {
 		t.Fatalf("lot B olay sayisi = %d, beklenen 0", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotB); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotB); n != 0 {
 		t.Fatalf("lot B oturum sayisi = %d, beklenen 0", n)
 	}
 
@@ -1238,7 +1238,7 @@ func TestOlayCakismasiFarkliIcerik(t *testing.T) {
 	if ayni.EventID != ilk.EventID || ayni.Outcome != ilk.Outcome || ayni.SessionID != ilk.SessionID {
 		t.Fatalf("ayni icerik sonucu farkli: %+v / %+v", ayni, ilk)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("olay sayisi = %d, beklenen 1", n)
 	}
 }
@@ -1294,7 +1294,7 @@ func TestOlayCakismasiEszamanli(t *testing.T) {
 			t.Fatalf("tur %d: basarili=%d cakisan=%d, beklenen 1/1", i, basarili, cakisan)
 		}
 		if n := say(t, pool,
-			`SELECT count(*) FROM plate_events WHERE camera_id = $1 AND camera_event_id = $2`,
+			`SELECT count(*) FROM "ya-plate_events" WHERE camera_id = $1 AND camera_event_id = $2`,
 			"cam-p2", anahtar); n != 1 {
 			t.Fatalf("tur %d: anahtar icin olay sayisi = %d, beklenen 1", i, n)
 		}
@@ -1388,7 +1388,7 @@ func TestKapatmaHatasiIncelemeye(t *testing.T) {
 	if kayit.Outcome != session.OutcomeReview {
 		t.Fatalf("cikis olayi sonucu = %q, beklenen review", kayit.Outcome)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 2 {
 		t.Fatalf("olay sayisi = %d, beklenen 2", n)
 	}
 }
@@ -1481,7 +1481,7 @@ func TestTekrarOlayNanosaniye(t *testing.T) {
 	if tekrar.EventID != ilk.EventID || tekrar.SessionID != ilk.SessionID || tekrar.Outcome != ilk.Outcome {
 		t.Fatalf("tekrar sonucu farkli: %+v / %+v", tekrar, ilk)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("plate_events satir sayisi = %d, beklenen 1", n)
 	}
 }
@@ -1550,7 +1550,7 @@ func TestTekrarOlayNanosaniyeYuvarlama(t *testing.T) {
 	if tekrarCikis.AmountKurus == nil || *tekrarCikis.AmountKurus != *ilkCikis.AmountKurus {
 		t.Fatalf("tekrar cikis tutari = %v, beklenen %v", tekrarCikis.AmountKurus, ilkCikis.AmountKurus)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 2 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 2 {
 		t.Fatalf("plate_events satir sayisi = %d, beklenen 2", n)
 	}
 }
@@ -1575,7 +1575,7 @@ func TestOlayCakismasiMikrosaniyeFarki(t *testing.T) {
 	if _, err := svc.HandleEvent(context.Background(), yanlis); !errors.Is(err, sessionsvc.ErrEventConflict) {
 		t.Fatalf("mikrosaniye farki hatasi = %v, beklenen ErrEventConflict", err)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-plate_events" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("plate_events satir sayisi = %d, beklenen 1", n)
 	}
 }

@@ -69,7 +69,7 @@ func InsertBlacklist(ctx context.Context, q Querier, plateRaw, reason string, cr
 		return BlacklistEntry{}, ErrInvalidBlacklist
 	}
 	e, err := scanBlacklist(q.QueryRow(ctx,
-		`INSERT INTO blacklist (plate, reason, created_by)
+		`INSERT INTO "ya-blacklist" (plate, reason, created_by)
 		 VALUES ($1, $2, $3)
 		 RETURNING `+blacklistColumns,
 		p, reason, createdBy,
@@ -83,7 +83,7 @@ func InsertBlacklist(ctx context.Context, q Querier, plateRaw, reason string, cr
 // ListBlacklist, kayitlari kimlik sirasiyla doner.
 func ListBlacklist(ctx context.Context, q Querier, afterID int64, limit int) ([]BlacklistEntry, error) {
 	rows, err := q.Query(ctx,
-		`SELECT `+blacklistColumns+` FROM blacklist
+		`SELECT `+blacklistColumns+` FROM "ya-blacklist"
 		 WHERE id > $1 ORDER BY id LIMIT $2`,
 		afterID, limit,
 	)
@@ -110,7 +110,7 @@ func ListBlacklist(ctx context.Context, q Querier, afterID int64, limit int) ([]
 // zaten kaldirilmissa ErrNotFound doner.
 func DeactivateBlacklist(ctx context.Context, q Querier, id int64, at time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE blacklist SET active = false, removed_at = $2
+		`UPDATE "ya-blacklist" SET active = false, removed_at = $2
 		 WHERE id = $1 AND active`,
 		id, at,
 	)
@@ -127,7 +127,7 @@ func DeactivateBlacklist(ctx context.Context, q Querier, id int64, at time.Time)
 func IsPlateBlacklisted(ctx context.Context, q Querier, plateNorm string) (bool, error) {
 	var exists bool
 	err := q.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM blacklist WHERE plate = $1 AND active)`,
+		`SELECT EXISTS (SELECT 1 FROM "ya-blacklist" WHERE plate = $1 AND active)`,
 		plateNorm,
 	).Scan(&exists)
 	if errors.Is(err, pgx.ErrNoRows) {

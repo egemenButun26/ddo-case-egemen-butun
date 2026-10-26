@@ -74,3 +74,4 @@ Make olmadan eşdeğerleri:
 | `make smoke` | `node test/faz2.js` |
 
 Durum: yalnızca iskelet (aşama 0); iş özellikleri henüz yok.
+DDO Case Kodu: ARDIC-45a6ab

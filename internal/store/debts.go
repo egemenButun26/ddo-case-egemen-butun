@@ -38,7 +38,7 @@ func InsertDebt(ctx context.Context, q Querier, sessionID, lotID int64, plateRaw
 
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO debts (session_id, lot_id, plate, amount_kurus, paid_kurus, status)
+		`INSERT INTO "ya-debts" (session_id, lot_id, plate, amount_kurus, paid_kurus, status)
 		 VALUES ($1, $2, $3, $4, 0, 'open')
 		 RETURNING id`,
 		sessionID, lotID, p, amount,
@@ -53,7 +53,7 @@ func InsertDebt(ctx context.Context, q Querier, sessionID, lotID int64, plateRaw
 func SumOpenDebtByPlate(ctx context.Context, q Querier, plateRaw string) (tariff.Kurus, error) {
 	var toplam tariff.Kurus
 	if err := q.QueryRow(ctx,
-		`SELECT COALESCE(sum(remaining_kurus), 0) FROM debts
+		`SELECT COALESCE(sum(remaining_kurus), 0) FROM "ya-debts"
 		 WHERE plate = $1 AND status = 'open'`, plate.Normalize(plateRaw),
 	).Scan(&toplam); err != nil {
 		return 0, err
@@ -66,7 +66,7 @@ func SumOpenDebtByPlate(ctx context.Context, q Querier, plateRaw string) (tariff
 func SumOpenDebtByPlateExcept(ctx context.Context, q Querier, plateRaw string, sessionID int64) (tariff.Kurus, error) {
 	var toplam tariff.Kurus
 	if err := q.QueryRow(ctx,
-		`SELECT COALESCE(sum(remaining_kurus), 0) FROM debts
+		`SELECT COALESCE(sum(remaining_kurus), 0) FROM "ya-debts"
 		 WHERE plate = $1 AND status = 'open' AND session_id <> $2`,
 		plate.Normalize(plateRaw), sessionID,
 	).Scan(&toplam); err != nil {
@@ -80,7 +80,7 @@ func ListOpenDebtsByPlate(ctx context.Context, q Querier, plateRaw string) ([]St
 	rows, err := q.Query(ctx,
 		`SELECT id, session_id, lot_id, plate, amount_kurus, paid_kurus, remaining_kurus,
 		        status, closed_at
-		 FROM debts WHERE plate = $1 AND status = 'open' ORDER BY id`, plate.Normalize(plateRaw))
+		 FROM "ya-debts" WHERE plate = $1 AND status = 'open' ORDER BY id`, plate.Normalize(plateRaw))
 	if err != nil {
 		return nil, err
 	}

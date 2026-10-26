@@ -31,7 +31,7 @@ func UpsertProviderSettlements(ctx context.Context, q Querier, day time.Time, ro
 	count := 0
 	for _, row := range rows {
 		if _, err := q.Exec(ctx,
-			`INSERT INTO provider_settlements (day, provider_ref, amount_kurus)
+			`INSERT INTO "ya-provider_settlements" (day, provider_ref, amount_kurus)
 			 VALUES ($1, $2, $3)
 			 ON CONFLICT (day, provider_ref) DO UPDATE SET amount_kurus = EXCLUDED.amount_kurus`,
 			dateText(day), row.ProviderRef, int64(row.Amount),
@@ -45,7 +45,7 @@ func UpsertProviderSettlements(ctx context.Context, q Querier, day time.Time, ro
 
 func ProviderSettlementsOnDay(ctx context.Context, q Querier, day time.Time) ([]SettlementRow, error) {
 	rows, err := q.Query(ctx,
-		`SELECT provider_ref, amount_kurus FROM provider_settlements WHERE day = $1 ORDER BY id`,
+		`SELECT provider_ref, amount_kurus FROM "ya-provider_settlements" WHERE day = $1 ORDER BY id`,
 		dateText(day),
 	)
 	if err != nil {
@@ -71,7 +71,7 @@ func ProviderSettlementsOnDay(ctx context.Context, q Querier, day time.Time) ([]
 
 func SucceededPaymentsOnDay(ctx context.Context, q Querier, start, end time.Time) ([]PaymentTxn, error) {
 	rows, err := q.Query(ctx,
-		`SELECT provider_ref, amount_kurus FROM payments
+		`SELECT provider_ref, amount_kurus FROM "ya-payments"
 		 WHERE status = 'succeeded' AND paid_at >= $1 AND paid_at < $2 ORDER BY id`,
 		start, end,
 	)
@@ -107,7 +107,7 @@ func GetReconciliationReport(ctx context.Context, q Querier, day time.Time) (Rec
 	var rec ReconciliationRecord
 	var ourTotal, providerTotal, diff int64
 	err := q.QueryRow(ctx,
-		`SELECT our_total, provider_total, diff, details FROM reconciliation_reports WHERE day = $1`,
+		`SELECT our_total, provider_total, diff, details FROM "ya-reconciliation_reports" WHERE day = $1`,
 		dateText(day),
 	).Scan(&ourTotal, &providerTotal, &diff, &rec.Details)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -124,7 +124,7 @@ func GetReconciliationReport(ctx context.Context, q Querier, day time.Time) (Rec
 
 func SaveReconciliationReport(ctx context.Context, q Querier, day time.Time, ourTotal, providerTotal, diff tariff.Kurus, details []byte) error {
 	_, err := q.Exec(ctx,
-		`INSERT INTO reconciliation_reports (day, our_total, provider_total, diff, details)
+		`INSERT INTO "ya-reconciliation_reports" (day, our_total, provider_total, diff, details)
 		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (day) DO UPDATE SET
 		   our_total = EXCLUDED.our_total,

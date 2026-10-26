@@ -410,7 +410,7 @@ func insertExitDebt(ctx context.Context, tx pgx.Tx, sess store.StoredSession, to
 
 func reviewIDForEvent(ctx context.Context, tx pgx.Tx, eventID int64) (int64, error) {
 	var id int64
-	err := tx.QueryRow(ctx, `SELECT id FROM review_items WHERE event_id = $1`, eventID).Scan(&id)
+	err := tx.QueryRow(ctx, `SELECT id FROM "ya-review_items" WHERE event_id = $1`, eventID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}

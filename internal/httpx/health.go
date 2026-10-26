@@ -20,6 +20,10 @@ func HealthHandler(p Pinger, timeout time.Duration) http.HandlerFunc {
 	return healthHandler(p, timeout, slog.Default())
 }
 
+func hzHandler(w http.ResponseWriter, r *http.Request) {
+	WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func healthHandler(p Pinger, timeout time.Duration, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
