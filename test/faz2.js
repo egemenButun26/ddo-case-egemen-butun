@@ -221,16 +221,29 @@ async function statikKontroller() {
     assert.strictEqual(r.status, 1, "git check-ignore .env.example gizli oldugunu soyledi");
   });
 
-  ok("a6 web dosyalari hazir (AbortController, /api/health)", () => {
+  ok("a6 web dosyalari hazir (AbortController, /health)", () => {
     const html = path.join(KOK, "web", "index.html");
-    const css = path.join(KOK, "web", "styles.css");
-    const js = path.join(KOK, "web", "app.js");
-    for (const dosya of [html, css, js]) {
+    const css = path.join(KOK, "web", "src", "styles.css");
+    const istemci = path.join(KOK, "web", "src", "api", "client.ts");
+    for (const dosya of [html, css, istemci]) {
       assert.ok(fs.existsSync(dosya), dosya + " yok");
     }
-    const app = fs.readFileSync(js, "utf8");
-    assert.match(app, /AbortController/, "app.js AbortController kullanmali");
-    assert.match(app, /\/api\/health/, "app.js /api/health cagirmali");
+    const app = fs.readFileSync(istemci, "utf8");
+    assert.match(app, /AbortController/, "client.ts AbortController kullanmali");
+
+    const kaynaklar = [];
+    const topla = (dizin) => {
+      for (const girdi of fs.readdirSync(dizin, { withFileTypes: true })) {
+        const tam = path.join(dizin, girdi.name);
+        if (girdi.isDirectory()) {
+          topla(tam);
+        } else if (/\.(ts|tsx)$/.test(girdi.name)) {
+          kaynaklar.push(fs.readFileSync(tam, "utf8"));
+        }
+      }
+    };
+    topla(path.join(KOK, "web", "src"));
+    assert.match(kaynaklar.join("\n"), /\/health/, "web/src icinde /health cagrisi olmali");
   });
 
   ok("a7 api.Dockerfile ENTRYPOINT icermiyor, CMD ile basliyor", () => {
