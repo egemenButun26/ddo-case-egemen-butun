@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"parkakil/internal/domain/occupancy"
+	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/domain/tariff"
 	"parkakil/internal/store"
@@ -135,7 +137,35 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event, 
 	if err != nil {
 		return Result{}, err
 	}
-	d, err := session.DecideEntry(s.cfg, ev, capacity, open, closed)
+
+	// Abone rezervasyonlari kapasiteden dusulur; bu plakanin kendi rezervasyonu
+	// zaten onun yeridir, o yuzden yalnizca baska plakalarin aktif rezervasyonlari
+	// sayilir. Etkin kapasite sifira inerse yeni plaka icin yer yoktur; domain
+	// sifir/negatif kapasiteyi hata saydigi icin bunu burada ele aliyoruz.
+	reservations, err := store.ListActiveReservations(ctx, tx, ev.LotID)
+	if err != nil {
+		return Result{}, err
+	}
+	plaka := plate.Normalize(ev.PlateRaw)
+	baskalar := 0
+	for _, r := range reservations {
+		if r.Plate != plaka {
+			baskalar++
+		}
+	}
+	etkinKapasite := occupancy.Available(capacity, 0, baskalar)
+	if etkinKapasite == 0 {
+		if len(open) > 0 {
+			// Ayni plakanin tekrar girisini kaybetmemek icin karar mekanizmasini
+			// calistir; acik oturum varken 1 esigi yeni plakayi capacity_full'a
+			// dusurur, tekrar girisi duplicate_entry olarak korur.
+			etkinKapasite = 1
+		} else {
+			return s.insertReview(ctx, tx, ev, plaka, session.Review{Reason: session.ReasonCapacityFull})
+		}
+	}
+
+	d, err := session.DecideEntry(s.cfg, ev, etkinKapasite, open, closed)
 	if err != nil {
 		return Result{}, err
 	}
@@ -159,6 +189,12 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event, 
 			return Result{}, fmt.Errorf("oturum acilamadi: %w", err)
 		}
 		if err := store.SetEventOutcome(ctx, tx, eventID, session.OutcomeOpened, sessionID); err != nil {
+			return Result{}, err
+		}
+		if _, err := store.MarkReservationArrivedByPlate(ctx, tx, ev.LotID, d.Plate, sessionID, ev.CapturedAt); err != nil {
+			return Result{}, err
+		}
+		if err := store.IncrementCounter(ctx, tx, ev.LotID); err != nil {
 			return Result{}, err
 		}
 
@@ -190,6 +226,9 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event, 
 				return Result{}, cerr
 			}
 			if err := store.SetEventOutcome(ctx, tx, o.EventID, session.OutcomeClosed, sessionID); err != nil {
+				return Result{}, err
+			}
+			if err := store.DecrementCounter(ctx, tx, ev.LotID); err != nil {
 				return Result{}, err
 			}
 			res.ClosedByOrphanExit = true
@@ -252,6 +291,9 @@ func (s *Service) handleExit(ctx context.Context, tx pgx.Tx, ev session.Event) (
 					ReviewID:  reviewID,
 				}, nil
 			}
+			return Result{}, err
+		}
+		if err := store.DecrementCounter(ctx, tx, ev.LotID); err != nil {
 			return Result{}, err
 		}
 		return Result{EventID: eventID, Outcome: session.OutcomeClosed, SessionID: d.SessionID, AmountKurus: &amount}, nil
