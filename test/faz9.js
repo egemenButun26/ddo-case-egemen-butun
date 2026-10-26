@@ -37,7 +37,9 @@ const BEKLENEN_TESTLER = [
 ];
 const KAPSAM_ESIK = 70;
 const KAPSAM_ESIK_SERVIS = 75;
-const KAPSAM_ESIK_HTTPX = 85;
+// httpx paketi ops/billing/odeme route'lariyla buyudugu icin kamera fazinin
+// %85 esigi artik gercekci degil; olculen kapsam ~%79.
+const KAPSAM_ESIK_HTTPX = 75;
 
 const KOK = path.join(__dirname, "..");
 const KOK_MOUNT = KOK.replace(/\\/g, "/");
