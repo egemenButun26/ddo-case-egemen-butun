@@ -10,6 +10,7 @@ import (
 type Config struct {
 	DatabaseURL     string
 	HTTPAddr        string
+	CameraAPIKey    string
 	LogLevel        slog.Level
 	ShutdownTimeout time.Duration
 	DBPingTimeout   time.Duration
@@ -19,12 +20,19 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		DatabaseURL:     getenv("DATABASE_URL"),
 		HTTPAddr:        getenv("HTTP_ADDR"),
+		CameraAPIKey:    getenv("CAMERA_API_KEY"),
 		ShutdownTimeout: 10 * time.Second,
 		DBPingTimeout:   2 * time.Second,
 	}
 
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("config: DATABASE_URL zorunlu")
+	}
+	if cfg.CameraAPIKey == "" {
+		return Config{}, errors.New("config: CAMERA_API_KEY zorunlu")
+	}
+	if len(cfg.CameraAPIKey) < 32 {
+		return Config{}, errors.New("config: CAMERA_API_KEY en az 32 karakter olmali")
 	}
 	if cfg.HTTPAddr == "" {
 		cfg.HTTPAddr = ":8080"

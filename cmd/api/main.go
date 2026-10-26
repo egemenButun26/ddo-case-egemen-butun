@@ -54,7 +54,7 @@ func run() int {
 		return 1
 	}
 
-	handler := httpx.NewRouter(logger, pool, cfg.DBPingTimeout, svc)
+	handler := httpx.NewRouter(logger, pool, cfg.DBPingTimeout, svc, cfg.CameraAPIKey)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
