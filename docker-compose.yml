@@ -55,6 +55,11 @@ services:
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10s}
       DB_PING_TIMEOUT: ${DB_PING_TIMEOUT:-2s}
       AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-12h}
+      PROVIDER_URL: ${PROVIDER_URL:-http://providersim:8090}
+      PROVIDER_WEBHOOK_SECRET: ${PROVIDER_WEBHOOK_SECRET:?PROVIDER_WEBHOOK_SECRET zorunlu}
+      PROVIDER_TIMEOUT: ${PROVIDER_TIMEOUT:-30s}
+      PAYMENT_EXPIRE_INTERVAL: ${PAYMENT_EXPIRE_INTERVAL:-10s}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://api:8080}
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,6 +102,23 @@ services:
       start_period: 5s
     restart: unless-stopped
     stop_grace_period: 15s
+
+  providersim:
+    image: parkakil-api:local
+    command: ["/app/providersim"]
+    environment:
+      PROVIDERSIM_ADDR: ":8090"
+      PROVIDER_WEBHOOK_SECRET: ${PROVIDER_WEBHOOK_SECRET:?PROVIDER_WEBHOOK_SECRET zorunlu}
+      PROVIDER_TIMEOUT: ${PROVIDER_TIMEOUT:-30s}
+      PROVIDERSIM_SEED: ${PROVIDERSIM_SEED:-4242}
+    healthcheck:
+      test: ["CMD", "/app/providersim", "healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+    restart: unless-stopped
+    stop_grace_period: 10s
 
   web:
     build:

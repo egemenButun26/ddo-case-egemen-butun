@@ -17,10 +17,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"parkakil/internal/config"
+	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/httpx"
 	"parkakil/internal/service/billingsvc"
 	"parkakil/internal/service/occupancysvc"
+	"parkakil/internal/service/paymentsvc"
 	"parkakil/internal/service/sessionsvc"
 )
 
@@ -57,9 +59,12 @@ func run() int {
 		return 1
 	}
 
-	billingSvc, err := billingsvc.New(pool)
+	payments, err := paymentsvc.New(pool, paymentsvc.Config{
+		ProviderTimeout: cfg.ProviderTimeout,
+		Thresholds:      plate.DefaultThresholds,
+	})
 	if err != nil {
-		logger.Error("faturalama servisi olusturulamadi", "hata", err)
+		logger.Error("odeme servisi olusturulamadi", "hata", err)
 		pool.Close()
 		return 1
 	}
@@ -70,6 +75,20 @@ func run() int {
 		pool.Close()
 		return 1
 	}
+
+	billingSvc, err := billingsvc.New(pool)
+	if err != nil {
+		logger.Error("faturalama servisi olusturulamadi", "hata", err)
+		pool.Close()
+		return 1
+	}
+
+	isCtx, isIptal := context.WithCancel(context.Background())
+	defer isIptal()
+	go paymentExpireLoop(isCtx, logger, payments, cfg.PaymentExpireInterval)
+	dunningCtx, stopDunning := context.WithCancel(context.Background())
+	defer stopDunning()
+	go dunningLoop(dunningCtx, logger, billingSvc, cfg.DunningInterval)
 
 	opsCtx, opsCancel := context.WithCancel(context.Background())
 	var opsWG sync.WaitGroup
@@ -88,16 +107,20 @@ func run() int {
 	}
 
 	handler := httpx.NewRouter(httpx.Deps{
-		Logger:       logger,
-		Pinger:       pool,
-		PingTimeout:  cfg.DBPingTimeout,
-		Events:       svc,
-		CameraKey:    cfg.CameraAPIKey,
-		MetricsToken: cfg.MetricsToken,
-		DB:           pool,
-		SessionTTL:   cfg.AuthSessionTTL,
-		Occupancy:    occupancySvc,
-		Billing:      billingSvc,
+		Logger:        logger,
+		Pinger:        pool,
+		PingTimeout:   cfg.DBPingTimeout,
+		Events:        svc,
+		CameraKey:     cfg.CameraAPIKey,
+		MetricsToken:  cfg.MetricsToken,
+		DB:            pool,
+		SessionTTL:    cfg.AuthSessionTTL,
+		Occupancy:     occupancySvc,
+		Payments:      payments,
+		ProviderURL:   cfg.ProviderURL,
+		WebhookSecret: cfg.ProviderWebhookSecret,
+		PublicAPIURL:  cfg.PublicAPIURL,
+		Billing:       billingSvc,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -107,9 +130,6 @@ func run() int {
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-
-	dunningCtx, stopDunning := context.WithCancel(context.Background())
-	go dunningLoop(dunningCtx, logger, billingSvc, cfg.DunningInterval)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -125,6 +145,7 @@ func run() int {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("sunucu hatasi", "hata", err)
+			isIptal()
 			stopDunning()
 			stopOps()
 			pool.Close()
@@ -137,7 +158,6 @@ func run() int {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("duzgun kapanis basarisiz", "hata", err)
 			_ = srv.Close()
-			stopDunning()
 			stopOps()
 			pool.Close()
 			logger.Info("kapandi")
@@ -145,6 +165,7 @@ func run() int {
 		}
 	}
 
+	isIptal()
 	stopDunning()
 	stopOps()
 	pool.Close()
@@ -152,35 +173,25 @@ func run() int {
 	return 0
 }
 
-// dunningLoop, vadesi gelen oturum sonu fatura tekrar denemelerini listeler.
-// Gercek tahsilat bir saglayiciya baglanmaz; deneme sonucu
-// POST /invoices/{id}/payment-attempts ucuyla kaydedilir.
-func dunningLoop(ctx context.Context, logger *slog.Logger, svc *billingsvc.Service, interval time.Duration) {
-	if interval <= 0 {
-		interval = time.Minute
-	}
-	ticker := time.NewTicker(interval)
+// paymentExpireLoop, zaman asimi dolan bekleyen odemeleri duzenli araliklarla
+// kapatir. Baglam iptal edilince durur.
+func paymentExpireLoop(ctx context.Context, logger *slog.Logger, svc *paymentsvc.Service, aralik time.Duration) {
+	ticker := time.NewTicker(aralik)
 	defer ticker.Stop()
-	logger.Info("dunning dongusu basladi", "aralik", interval.String())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			invoices, err := svc.DueRetries(ctx, time.Now())
+			iscCtx, iptal := context.WithTimeout(ctx, 10*time.Second)
+			n, err := svc.ExpirePending(iscCtx, time.Now().UTC())
+			iptal()
 			if err != nil {
-				if ctx.Err() == nil {
-					logger.Error("dunning listesi okunamadi", "hata", err)
-				}
+				logger.Error("bekleyen odemeler zaman asimina ugratilamadi", "hata", err)
 				continue
 			}
-			for _, inv := range invoices {
-				logger.Info("dunning tekrar denemesi bekliyor",
-					"fatura_id", inv.ID,
-					"abonelik_id", inv.SubscriptionID,
-					"deneme", inv.Attempts,
-					"sonraki_deneme", inv.NextRetryAt,
-				)
+			if n > 0 {
+				logger.Info("bekleyen odemeler zaman asimina ugratildi", "adet", n)
 			}
 		}
 	}
@@ -219,4 +230,38 @@ func healthcheckURL(addr string) (string, error) {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port) + "/health", nil
+}
+
+// dunningLoop, vadesi gelen oturum sonu fatura tekrar denemelerini listeler.
+// Gercek tahsilat bir saglayiciya baglanmaz; deneme sonucu
+// POST /invoices/{id}/payment-attempts ucuyla kaydedilir.
+func dunningLoop(ctx context.Context, logger *slog.Logger, svc *billingsvc.Service, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	logger.Info("dunning dongusu basladi", "aralik", interval.String())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			invoices, err := svc.DueRetries(ctx, time.Now())
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Error("dunning listesi okunamadi", "hata", err)
+				}
+				continue
+			}
+			for _, inv := range invoices {
+				logger.Info("dunning tekrar denemesi bekliyor",
+					"fatura_id", inv.ID,
+					"abonelik_id", inv.SubscriptionID,
+					"deneme", inv.Attempts,
+					"sonraki_deneme", inv.NextRetryAt,
+				)
+			}
+		}
+	}
 }

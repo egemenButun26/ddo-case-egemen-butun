@@ -19,8 +19,20 @@ type Config struct {
 
 	ReservationReleaseInterval time.Duration
 	DriftCheckInterval         time.Duration
+	ProviderURL                string
+	ProviderWebhookSecret      string
+	ProviderTimeout            time.Duration
+	PaymentExpireInterval      time.Duration
+	PublicAPIURL               string
 	DunningInterval            time.Duration
 }
+
+const (
+	defaultProviderURL           = "http://providersim:8090"
+	defaultProviderTimeout       = 30 * time.Second
+	defaultPaymentExpireInterval = 10 * time.Second
+	defaultPublicAPIURL          = "http://api:8080"
+)
 
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
@@ -33,6 +45,11 @@ func Load(getenv func(string) string) (Config, error) {
 		AuthSessionTTL:             12 * time.Hour,
 		ReservationReleaseInterval: 30 * time.Second,
 		DriftCheckInterval:         5 * time.Minute,
+		ProviderURL:                getenv("PROVIDER_URL"),
+		ProviderWebhookSecret:      getenv("PROVIDER_WEBHOOK_SECRET"),
+		ProviderTimeout:            defaultProviderTimeout,
+		PaymentExpireInterval:      defaultPaymentExpireInterval,
+		PublicAPIURL:               getenv("PUBLIC_API_URL"),
 		DunningInterval:            time.Minute,
 	}
 
@@ -78,6 +95,28 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+
+	if cfg.ProviderWebhookSecret == "" {
+		return Config{}, errors.New("config: PROVIDER_WEBHOOK_SECRET zorunlu")
+	}
+	if len(cfg.ProviderWebhookSecret) < 16 {
+		return Config{}, errors.New("config: PROVIDER_WEBHOOK_SECRET en az 16 karakter olmali")
+	}
+	if cfg.ProviderURL == "" {
+		cfg.ProviderURL = defaultProviderURL
+	}
+	if cfg.PublicAPIURL == "" {
+		cfg.PublicAPIURL = defaultPublicAPIURL
+	}
+	cfg.ProviderTimeout, err = parsePositiveDuration("PROVIDER_TIMEOUT", getenv("PROVIDER_TIMEOUT"), cfg.ProviderTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PaymentExpireInterval, err = parsePositiveDuration("PAYMENT_EXPIRE_INTERVAL", getenv("PAYMENT_EXPIRE_INTERVAL"), cfg.PaymentExpireInterval)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg.DunningInterval, err = parsePositiveDuration("DUNNING_INTERVAL", getenv("DUNNING_INTERVAL"), cfg.DunningInterval)
 	if err != nil {
 		return Config{}, err
