@@ -15,7 +15,7 @@ process.on("unhandledRejection", (e) => {
   process.exitCode = 1;
 });
 
-const BEKLENEN_KONTROL = 21;
+const BEKLENEN_KONTROL = 22;
 
 const KOK = path.join(__dirname, "..");
 const KOK_MOUNT = KOK.replace(/\\/g, "/");
@@ -502,6 +502,19 @@ async function main() {
       compose(["up", "-d", "--wait", "--wait-timeout", "300"], { timeout: 360000 });
       n++;
       console.log("  ok  c1 compose ayakta (--wait)");
+    });
+
+    await adim("c) simulator sagligi", async () => {
+      ok("c1b simulator servisi healthy", () => {
+        const konteyner = compose(["ps", "-q", "simulator"]).stdout
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean)[0];
+        assert.ok(konteyner, "simulator konteyneri bulunamadi");
+        const r = calistir("docker", ["inspect", "--format", "{{.State.Health.Status}}", konteyner]);
+        assert.strictEqual(r.status, 0, "simulator konteyneri incelenemedi: " + r.stderr);
+        assert.strictEqual(r.stdout.trim(), "healthy", "simulator healthy degil: " + r.stdout.trim());
+      });
     });
     await adim("c) canli kontroller", canliKontrolleri);
     await adim("c) dusus ve toparlanma", dususVeToparlanma);
