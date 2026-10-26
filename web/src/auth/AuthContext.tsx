@@ -21,6 +21,7 @@ export type Kullanici = {
   email: string;
   name: string;
   role: Rol;
+  plate?: string;
 };
 
 type GirisYaniti = {
@@ -122,4 +123,8 @@ export function useAuth(): AuthBaglami {
     throw new Error("useAuth yalnızca AuthProvider içinde kullanılabilir.");
   }
   return baglam;
+}
+
+export function useAuthOpsiyonel(): AuthBaglami | null {
+  return useContext(AuthContext);
 }
