@@ -226,4 +226,4 @@ Paket: `internal/service/sessionsvc`. `Service.HandleEvent` bir kamera olayını
   `git checkout --` kullanılmadı).
 - Doğrulama: `gofmt -l .` boş, `go vet ./...` temiz, `go test ./...` (veritabanı yokken
   entegrasyon testleri atlanır) yeşil; `node test/faz7.js`, `faz6.js`, `faz5.js`, `faz4.js`,
-  `faz3.js`, `faz1.js` yeşil.
+  `faz3.js` yeşil.
