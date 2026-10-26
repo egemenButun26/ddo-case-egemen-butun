@@ -4,7 +4,7 @@ GO_IMAGE := golang:1.23-alpine
 GO_MOD_CACHE := parkakil-gomod
 GO_DOCKER := docker run --rm -v "$(CURDIR):/src" -v $(GO_MOD_CACHE):/go/pkg/mod -w /src -e GOFLAGS=-buildvcs=false $(GO_IMAGE) sh -c
 
-.PHONY: up down logs test smoke
+.PHONY: up down logs test smoke load chaos
 
 up:
 	docker compose up -d --build --wait
@@ -20,3 +20,9 @@ test:
 
 smoke:
 	node test/faz2.js
+
+load:
+	sh scripts/load/run.sh
+
+chaos:
+	sh scripts/chaos/postgres-kesintisi.sh

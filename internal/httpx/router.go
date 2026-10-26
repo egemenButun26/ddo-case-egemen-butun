@@ -16,14 +16,15 @@ import (
 )
 
 type Deps struct {
-	Logger      *slog.Logger
-	Pinger      Pinger
-	PingTimeout time.Duration
-	Events      EventHandler
-	CameraKey   string
-	DB          store.Querier
-	SessionTTL  time.Duration
-	Occupancy   *occupancysvc.Service
+	Logger       *slog.Logger
+	Pinger       Pinger
+	PingTimeout  time.Duration
+	Events       EventHandler
+	CameraKey    string
+	MetricsToken string
+	DB           store.Querier
+	SessionTTL   time.Duration
+	Occupancy    *occupancysvc.Service
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -42,10 +43,13 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	deps.Logger = logger
 	deps.SessionTTL = ttl
 
+	metrics := newMetricsRegistry()
+
 	r := chi.NewRouter()
-	r.Use(requestID, accessLog(logger), recoverPanic(logger))
+	r.Use(requestID, accessLog(logger), metrics.middleware(), recoverPanic(logger))
 
 	r.Get("/health", healthHandler(deps.Pinger, deps.PingTimeout, logger))
+	r.Get("/metrics", metricsHandler(deps.MetricsToken, metrics))
 
 	if deps.Events != nil {
 		r.With(requireCameraKey(deps.CameraKey, logger)).Post("/camera-events", cameraEventHandler(deps.Events, logger))
