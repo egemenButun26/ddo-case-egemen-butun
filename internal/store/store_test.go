@@ -103,7 +103,7 @@ func TestSchemaObjects(t *testing.T) {
 		t.Fatalf("tablo listesi: %v", err)
 	}
 
-	for _, ad := range []string{"lots", "tariff_versions", "plate_events", "sessions", "review_items"} {
+	for _, ad := range []string{"lots", "tariff_versions", "plate_events", "sessions", "review_items", "payments", "refunds", "debts"} {
 		if !tablolar[ad] {
 			t.Fatalf("%s tablosu yok", ad)
 		}
@@ -117,6 +117,17 @@ func TestSchemaObjects(t *testing.T) {
 	}
 	if indexSayisi != 1 {
 		t.Fatalf("sessions_one_open_per_plate dizini yok (%d)", indexSayisi)
+	}
+
+	for _, ad := range []string{"payments_one_pending_per_session", "debts_open_plate_idx"} {
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, ad,
+		).Scan(&indexSayisi); err != nil {
+			t.Fatalf("%s dizini okunamadi: %v", ad, err)
+		}
+		if indexSayisi != 1 {
+			t.Fatalf("%s dizini yok (%d)", ad, indexSayisi)
+		}
 	}
 }
 
@@ -172,6 +183,25 @@ func TestMigrationDownUp(t *testing.T) {
 	}
 	if indexSayisi != 1 {
 		t.Fatalf("up sonrasi sessions_one_open_per_plate dizini yok (%d)", indexSayisi)
+	}
+
+	for _, ad := range []string{"payments", "refunds", "debts"} {
+		if err := db.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, "public."+ad).Scan(&varMi); err != nil {
+			t.Fatalf("%s kontrolu: %v", ad, err)
+		}
+		if !varMi {
+			t.Fatalf("up sonrasi %s tablosu yok", ad)
+		}
+	}
+	for _, ad := range []string{"payments_one_pending_per_session", "debts_open_plate_idx"} {
+		if err := db.QueryRow(
+			`SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = $1`, ad,
+		).Scan(&indexSayisi); err != nil {
+			t.Fatalf("%s dizini kontrolu: %v", ad, err)
+		}
+		if indexSayisi != 1 {
+			t.Fatalf("up sonrasi %s dizini yok (%d)", ad, indexSayisi)
+		}
 	}
 }
 
