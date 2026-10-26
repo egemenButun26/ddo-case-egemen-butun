@@ -15,7 +15,7 @@ process.on("unhandledRejection", (e) => {
   process.exitCode = 1;
 });
 
-const BEKLENEN_KONTROL = 21;
+const BEKLENEN_KONTROL = 22;
 
 const KOK = path.join(__dirname, "..");
 const KOK_MOUNT = KOK.replace(/\\/g, "/");
@@ -199,7 +199,7 @@ async function statikKontroller() {
     const adlar = Object.keys(bloklar);
     assert.ok(adlar.length >= 4, "servisler eksik: " + adlar.join(", "));
     for (const ad of adlar) {
-      if (ad === "migrate") continue;
+      if (ad === "migrate" || ad === "seed") continue;
       assert.ok(
         bloklar[ad].some((s) => /^\s{4}healthcheck\s*:/.test(s)),
         ad + " servisinde healthcheck yok"
@@ -221,16 +221,29 @@ async function statikKontroller() {
     assert.strictEqual(r.status, 1, "git check-ignore .env.example gizli oldugunu soyledi");
   });
 
-  ok("a6 web dosyalari hazir (AbortController, /api/health)", () => {
+  ok("a6 web dosyalari hazir (AbortController, /health)", () => {
     const html = path.join(KOK, "web", "index.html");
-    const css = path.join(KOK, "web", "styles.css");
-    const js = path.join(KOK, "web", "app.js");
-    for (const dosya of [html, css, js]) {
+    const css = path.join(KOK, "web", "src", "styles.css");
+    const istemci = path.join(KOK, "web", "src", "api", "client.ts");
+    for (const dosya of [html, css, istemci]) {
       assert.ok(fs.existsSync(dosya), dosya + " yok");
     }
-    const app = fs.readFileSync(js, "utf8");
-    assert.match(app, /AbortController/, "app.js AbortController kullanmali");
-    assert.match(app, /\/api\/health/, "app.js /api/health cagirmali");
+    const app = fs.readFileSync(istemci, "utf8");
+    assert.match(app, /AbortController/, "client.ts AbortController kullanmali");
+
+    const kaynaklar = [];
+    const topla = (dizin) => {
+      for (const girdi of fs.readdirSync(dizin, { withFileTypes: true })) {
+        const tam = path.join(dizin, girdi.name);
+        if (girdi.isDirectory()) {
+          topla(tam);
+        } else if (/\.(ts|tsx)$/.test(girdi.name)) {
+          kaynaklar.push(fs.readFileSync(tam, "utf8"));
+        }
+      }
+    };
+    topla(path.join(KOK, "web", "src"));
+    assert.match(kaynaklar.join("\n"), /\/health/, "web/src icinde /health cagrisi olmali");
   });
 
   ok("a7 api.Dockerfile ENTRYPOINT icermiyor, CMD ile basliyor", () => {
@@ -489,6 +502,19 @@ async function main() {
       compose(["up", "-d", "--wait", "--wait-timeout", "300"], { timeout: 360000 });
       n++;
       console.log("  ok  c1 compose ayakta (--wait)");
+    });
+
+    await adim("c) simulator sagligi", async () => {
+      ok("c1b simulator servisi healthy", () => {
+        const konteyner = compose(["ps", "-q", "simulator"]).stdout
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean)[0];
+        assert.ok(konteyner, "simulator konteyneri bulunamadi");
+        const r = calistir("docker", ["inspect", "--format", "{{.State.Health.Status}}", konteyner]);
+        assert.strictEqual(r.status, 0, "simulator konteyneri incelenemedi: " + r.stderr);
+        assert.strictEqual(r.stdout.trim(), "healthy", "simulator healthy degil: " + r.stdout.trim());
+      });
     });
     await adim("c) canli kontroller", canliKontrolleri);
     await adim("c) dusus ve toparlanma", dususVeToparlanma);

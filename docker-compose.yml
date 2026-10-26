@@ -29,6 +29,17 @@ services:
         condition: service_healthy
     restart: "no"
 
+  seed:
+    image: parkakil-api:local
+    command: ["/app/seed"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-parkakil}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD zorunlu}@postgres:5432/${POSTGRES_DB:-parkakil}?sslmode=disable
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:?SEED_DEMO_PASSWORD zorunlu}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   api:
     image: parkakil-api:local
     build:
@@ -42,10 +53,13 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10s}
       DB_PING_TIMEOUT: ${DB_PING_TIMEOUT:-2s}
+      AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-12h}
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      seed:
         condition: service_completed_successfully
     ports:
       - "${API_HOST_PORT:-8080}:8080"
@@ -54,6 +68,31 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  simulator:
+    image: parkakil-api:local
+    command: ["/app/simulator"]
+    environment:
+      SIM_API_URL: ${SIM_API_URL:-http://api:8080}
+      CAMERA_API_KEY: ${CAMERA_API_KEY:?CAMERA_API_KEY zorunlu}
+      DATABASE_URL: postgres://${POSTGRES_USER:-parkakil}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD zorunlu}@postgres:5432/${POSTGRES_DB:-parkakil}?sslmode=disable
+      SIM_SEED: ${SIM_SEED:-20261026}
+      SIM_EVENTS_PER_DAY: ${SIM_EVENTS_PER_DAY:-20000}
+      SIM_SPEED: ${SIM_SPEED:-60}
+      SIM_START: ${SIM_START:-}
+    depends_on:
+      api:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/simulator", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
       start_period: 5s
     restart: unless-stopped
     stop_grace_period: 15s

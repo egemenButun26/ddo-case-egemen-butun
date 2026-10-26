@@ -17,7 +17,7 @@ import (
 const testKameraAnahtari = "test-kamera-anahtari-0123456789abcdef"
 
 func newAuthRouter(key string, logger *slog.Logger, h EventHandler) http.Handler {
-	return newRouter(logger, fakePinger{}, time.Second, h, key, nil)
+	return newRouter(Deps{Logger: logger, Pinger: fakePinger{}, PingTimeout: time.Second, Events: h, CameraKey: key}, nil)
 }
 
 func authRequest(t *testing.T, h http.Handler, body, contentType, key string, setKey bool) *httptest.ResponseRecorder {

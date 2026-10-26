@@ -9,21 +9,53 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"parkakil/internal/auth"
+	"parkakil/internal/store"
 )
 
-func NewRouter(logger *slog.Logger, p Pinger, pingTimeout time.Duration, events EventHandler, cameraKey string) http.Handler {
-	return newRouter(logger, p, pingTimeout, events, cameraKey, nil)
+type Deps struct {
+	Logger      *slog.Logger
+	Pinger      Pinger
+	PingTimeout time.Duration
+	Events      EventHandler
+	CameraKey   string
+	DB          store.Querier
+	SessionTTL  time.Duration
 }
 
-func newRouter(logger *slog.Logger, p Pinger, pingTimeout time.Duration, events EventHandler, cameraKey string, extra func(chi.Router)) http.Handler {
+func NewRouter(deps Deps) http.Handler {
+	return newRouter(deps, nil)
+}
+
+func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
+	logger := deps.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	ttl := deps.SessionTTL
+	if ttl <= 0 {
+		ttl = 12 * time.Hour
+	}
+	deps.Logger = logger
+	deps.SessionTTL = ttl
+
 	r := chi.NewRouter()
 	r.Use(requestID, accessLog(logger), recoverPanic(logger))
 
-	r.Get("/health", healthHandler(p, pingTimeout, logger))
+	r.Get("/health", healthHandler(deps.Pinger, deps.PingTimeout, logger))
 
-	if events != nil {
-		r.With(requireCameraKey(cameraKey, logger)).Post("/camera-events", cameraEventHandler(events, logger))
+	if deps.Events != nil {
+		r.With(requireCameraKey(deps.CameraKey, logger)).Post("/camera-events", cameraEventHandler(deps.Events, logger))
 	}
+
+	r.Route("/auth", func(r chi.Router) {
+		r.Post("/login", loginHandler(deps))
+		r.With(requireAuth(deps)).Post("/logout", logoutHandler(deps))
+		r.With(requireAuth(deps)).Get("/me", meHandler())
+	})
+
+	r.With(requireAuth(deps), requireRole(auth.RoleAdmin)).Get("/admin/users", adminUsersHandler(deps))
 
 	if extra != nil {
 		extra(r)
