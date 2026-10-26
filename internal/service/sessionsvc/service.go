@@ -129,6 +129,17 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 }
 
 func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event, capacity int) (Result, error) {
+	plaka := plate.Normalize(ev.PlateRaw)
+	if plaka != "" {
+		blacklisted, err := store.IsPlateBlacklisted(ctx, tx, plaka)
+		if err != nil {
+			return Result{}, err
+		}
+		if blacklisted {
+			return s.insertReview(ctx, tx, ev, plaka, session.Review{Reason: session.ReasonBlacklisted})
+		}
+	}
+
 	open, err := store.ListOpenSessions(ctx, tx, ev.LotID)
 	if err != nil {
 		return Result{}, err
@@ -146,7 +157,6 @@ func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event, 
 	if err != nil {
 		return Result{}, err
 	}
-	plaka := plate.Normalize(ev.PlateRaw)
 	baskalar := 0
 	for _, r := range reservations {
 		if r.Plate != plaka {

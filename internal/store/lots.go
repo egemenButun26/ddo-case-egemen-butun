@@ -20,6 +20,38 @@ func CreateLot(ctx context.Context, q Querier, code, name string, capacity int) 
 	return id, nil
 }
 
+// LotSummary, otoparkin temel bilgileridir.
+type LotSummary struct {
+	ID       int64
+	Code     string
+	Name     string
+	Capacity int
+}
+
+// ListLots, otoparklari kimlik sirasiyla doner.
+func ListLots(ctx context.Context, q Querier) ([]LotSummary, error) {
+	rows, err := q.Query(ctx,
+		`SELECT id, code, name, capacity FROM lots ORDER BY id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []LotSummary
+	for rows.Next() {
+		var l LotSummary
+		if err := rows.Scan(&l.ID, &l.Code, &l.Name, &l.Capacity); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LockLot, otopark satirini islem boyunca kilitler ve kapasitesini doner.
 // Yoksa ErrLotNotFound doner.
 func LockLot(ctx context.Context, q Querier, lotID int64) (int, error) {
