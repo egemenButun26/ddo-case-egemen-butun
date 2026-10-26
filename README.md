@@ -19,6 +19,12 @@ Windows PowerShell'de kopyalamak için: `Copy-Item .env.example .env`
 | API | http://localhost:8080 |
 | API sağlık kontrolü | http://localhost:8080/health |
 
+## Kamera olay ucu
+
+Kamera olayları web üzerinden `POST /api/camera-events`, API portu üzerinden `POST /camera-events` ile gönderilir.
+İstekte `X-Camera-Key` başlığı zorunludur; eksik ya da yanlışsa `401` döner.
+Anahtar `.env` dosyasındaki `CAMERA_API_KEY` değeridir; gerçek anahtarı bu dosyaya yazmayın.
+
 ## Port çakışması
 
 Host'ta 8080 ya da 3000 doluysa `.env` içinde portları değiştirin:

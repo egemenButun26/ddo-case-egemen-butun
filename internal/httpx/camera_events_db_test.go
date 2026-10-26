@@ -47,16 +47,24 @@ func dbHazirla(t *testing.T) (http.Handler, *pgxpool.Pool, int64) {
 	if err := store.InsertTariffVersion(context.Background(), pool, lotID, v); err != nil {
 		t.Fatalf("tarife eklenemedi: %v", err)
 	}
-	return NewRouter(discardLogger(), pool, time.Second, svc), pool, lotID
+	return NewRouter(discardLogger(), pool, time.Second, svc, testKameraAnahtari), pool, lotID
+}
+
+func postEventWithKey(t *testing.T, h http.Handler, body, key string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/camera-events", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		req.Header.Set(cameraKeyHeader, key)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func postEvent(t *testing.T, h http.Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/camera-events", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
+	return postEventWithKey(t, h, body, testKameraAnahtari)
 }
 
 func eventJSON(lotID int64, cameraEventID, direction, plate, capturedAt string) string {
@@ -204,5 +212,38 @@ func TestCameraEventHTTPEszamanli(t *testing.T) {
 	}
 	if acik != 1 {
 		t.Errorf("acik oturum = %d, beklenen 1", acik)
+	}
+}
+
+func TestCameraEventHTTPYetkisizYazmaz(t *testing.T) {
+	h, pool, lotID := dbHazirla(t)
+	govde := eventJSON(lotID, benzersiz("yetkisiz"), "entry", "34ABC34", "2026-03-01T10:00:00Z")
+
+	rec := postEventWithKey(t, h, govde, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anahtarsiz durum = %d, beklenen 401; govde: %s", rec.Code, rec.Body.String())
+	}
+	assertErrorBody(t, rec, "unauthorized")
+
+	rec = postEventWithKey(t, h, govde, "yanlis-kamera-anahtari")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("yanlis anahtar durum = %d, beklenen 401; govde: %s", rec.Code, rec.Body.String())
+	}
+	assertErrorBody(t, rec, "unauthorized")
+
+	var olaySayisi, oturumSayisi int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotID).Scan(&olaySayisi); err != nil {
+		t.Fatalf("olay sayisi okunamadi: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID).Scan(&oturumSayisi); err != nil {
+		t.Fatalf("oturum sayisi okunamadi: %v", err)
+	}
+	if olaySayisi != 0 {
+		t.Errorf("plate_events = %d, beklenen 0", olaySayisi)
+	}
+	if oturumSayisi != 0 {
+		t.Errorf("sessions = %d, beklenen 0", oturumSayisi)
 	}
 }

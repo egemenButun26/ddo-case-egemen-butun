@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const testCameraAPIKey = "test-kamera-anahtari-0123456789abcdef"
+
 func env(values map[string]string) func(string) string {
 	return func(key string) string {
 		return values[key]
@@ -15,7 +17,8 @@ func env(values map[string]string) func(string) string {
 
 func TestLoadDefaults(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"DATABASE_URL": "postgres://user:pass@localhost:5432/parkakil",
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": testCameraAPIKey,
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -37,6 +40,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadCustomValues(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
 		"DATABASE_URL":     "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY":   testCameraAPIKey,
 		"HTTP_ADDR":        "127.0.0.1:9090",
 		"LOG_LEVEL":        "debug",
 		"SHUTDOWN_TIMEOUT": "3s",
@@ -67,8 +71,9 @@ func TestLoadRequiresDatabaseURL(t *testing.T) {
 
 func TestLoadRejectsInvalidLogLevel(t *testing.T) {
 	_, err := Load(env(map[string]string{
-		"DATABASE_URL": "postgres://user:pass@localhost:5432/parkakil",
-		"LOG_LEVEL":    "verbose",
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": testCameraAPIKey,
+		"LOG_LEVEL":      "verbose",
 	}))
 	if err == nil {
 		t.Fatal("gecersiz LOG_LEVEL icin hata bekleniyordu")
@@ -83,6 +88,7 @@ func TestLoadRejectsInvalidDurations(t *testing.T) {
 		t.Run("SHUTDOWN_TIMEOUT="+raw, func(t *testing.T) {
 			_, err := Load(env(map[string]string{
 				"DATABASE_URL":     "postgres://user:pass@localhost:5432/parkakil",
+				"CAMERA_API_KEY":   testCameraAPIKey,
 				"SHUTDOWN_TIMEOUT": raw,
 			}))
 			if err == nil {
@@ -100,6 +106,7 @@ func TestLoadRejectsInvalidDBPingTimeout(t *testing.T) {
 		t.Run("DB_PING_TIMEOUT="+raw, func(t *testing.T) {
 			_, err := Load(env(map[string]string{
 				"DATABASE_URL":    "postgres://user:pass@localhost:5432/parkakil",
+				"CAMERA_API_KEY":  testCameraAPIKey,
 				"DB_PING_TIMEOUT": raw,
 			}))
 			if err == nil {
@@ -112,6 +119,7 @@ func TestLoadRejectsInvalidDBPingTimeout(t *testing.T) {
 func TestErrorHidesDatabaseURL(t *testing.T) {
 	_, err := Load(env(map[string]string{
 		"DATABASE_URL":     "postgres://kullanici:gizliparola@localhost:5432/parkakil",
+		"CAMERA_API_KEY":   testCameraAPIKey,
 		"SHUTDOWN_TIMEOUT": "abc",
 	}))
 	if err == nil {
@@ -119,5 +127,57 @@ func TestErrorHidesDatabaseURL(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "gizliparola") {
 		t.Errorf("hata mesaji parolayi icermemeli: %v", err)
+	}
+}
+
+func TestLoadRequiresCameraAPIKey(t *testing.T) {
+	_, err := Load(env(map[string]string{
+		"DATABASE_URL": "postgres://user:pass@localhost:5432/parkakil",
+	}))
+	if err == nil {
+		t.Fatal("CAMERA_API_KEY bosken hata bekleniyordu")
+	}
+	if !strings.Contains(err.Error(), "CAMERA_API_KEY") {
+		t.Errorf("hata degisken adini icermeli: %v", err)
+	}
+}
+
+func TestLoadRejectsShortCameraAPIKey(t *testing.T) {
+	_, err := Load(env(map[string]string{
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": "kisa",
+	}))
+	if err == nil {
+		t.Fatal("kisa CAMERA_API_KEY icin hata bekleniyordu")
+	}
+	if !strings.Contains(err.Error(), "CAMERA_API_KEY") {
+		t.Errorf("hata degisken adini icermeli: %v", err)
+	}
+}
+
+func TestLoadCameraAPIKey(t *testing.T) {
+	cfg, err := Load(env(map[string]string{
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": testCameraAPIKey,
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.CameraAPIKey != testCameraAPIKey {
+		t.Errorf("CameraAPIKey = %q, beklenen test anahtari", cfg.CameraAPIKey)
+	}
+}
+
+func TestErrorHidesCameraAPIKey(t *testing.T) {
+	gizli := "gizli-anahtar-0123456789"
+	_, err := Load(env(map[string]string{
+		"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY": gizli,
+	}))
+	if err == nil {
+		t.Fatal("hata bekleniyordu")
+	}
+	if strings.Contains(err.Error(), gizli) {
+		t.Errorf("hata mesaji anahtari icermemeli: %v", err)
 	}
 }

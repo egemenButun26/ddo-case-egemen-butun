@@ -30,7 +30,7 @@ func (f *fakeEventHandler) HandleEvent(ctx context.Context, ev session.Event) (s
 }
 
 func newEventRouter(h EventHandler) http.Handler {
-	return newRouter(discardLogger(), fakePinger{}, time.Second, h, nil)
+	return newRouter(discardLogger(), fakePinger{}, time.Second, h, testKameraAnahtari, nil)
 }
 
 func eventBody(t *testing.T, alanlar map[string]any) string {
@@ -56,6 +56,7 @@ func eventBody(t *testing.T, alanlar map[string]any) string {
 func doEventRequest(t *testing.T, h http.Handler, method, body, contentType string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, "/camera-events", strings.NewReader(body))
+	req.Header.Set(cameraKeyHeader, testKameraAnahtari)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}

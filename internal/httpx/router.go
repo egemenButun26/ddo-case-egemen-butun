@@ -11,18 +11,18 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func NewRouter(logger *slog.Logger, p Pinger, pingTimeout time.Duration, events EventHandler) http.Handler {
-	return newRouter(logger, p, pingTimeout, events, nil)
+func NewRouter(logger *slog.Logger, p Pinger, pingTimeout time.Duration, events EventHandler, cameraKey string) http.Handler {
+	return newRouter(logger, p, pingTimeout, events, cameraKey, nil)
 }
 
-func newRouter(logger *slog.Logger, p Pinger, pingTimeout time.Duration, events EventHandler, extra func(chi.Router)) http.Handler {
+func newRouter(logger *slog.Logger, p Pinger, pingTimeout time.Duration, events EventHandler, cameraKey string, extra func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestID, accessLog(logger), recoverPanic(logger))
 
 	r.Get("/health", healthHandler(p, pingTimeout, logger))
 
 	if events != nil {
-		r.Post("/camera-events", cameraEventHandler(events, logger))
+		r.With(requireCameraKey(cameraKey, logger)).Post("/camera-events", cameraEventHandler(events, logger))
 	}
 
 	if extra != nil {
