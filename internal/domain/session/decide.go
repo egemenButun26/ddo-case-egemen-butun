@@ -32,6 +32,7 @@ const (
 	ReasonLateEntry              = "late_entry"
 	ReasonCapacityFull           = "capacity_full"
 	ReasonCloseFailed            = "close_failed"
+	ReasonBlacklisted            = "blacklisted"
 )
 
 type OpenSession struct {

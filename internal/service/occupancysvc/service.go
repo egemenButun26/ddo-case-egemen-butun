@@ -5,6 +5,7 @@ package occupancysvc
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -201,4 +202,75 @@ func (s *Service) Occupancy(ctx context.Context, lotID int64) (Snapshot, error) 
 		ActiveReservations: aktif,
 		Available:          occupancy.Available(capacity, occupied, aktif),
 	}, nil
+}
+
+// RunReleaseLoop, context iptal edilene kadar suresi dolmus rezervasyonlari
+// periyodik olarak serbest birakir.
+func (s *Service) RunReleaseLoop(ctx context.Context, interval time.Duration, logger *slog.Logger) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	s.runLoop(ctx, interval, func(ctx context.Context) {
+		n, err := s.ReleaseExpired(ctx, time.Now())
+		if err != nil {
+			logger.Error("rezervasyon serbest birakma hatasi", "hata", err)
+			return
+		}
+		if n > 0 {
+			logger.Info("suresi dolmus rezervasyonlar serbest birakildi", "sayi", n)
+		}
+	})
+}
+
+// RunDriftLoop, context iptal edilene kadar tum otoparklarda sayac kaymasini
+// denetler ve duzeltir.
+func (s *Service) RunDriftLoop(ctx context.Context, interval time.Duration, logger *slog.Logger) {
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	s.runLoop(ctx, interval, func(ctx context.Context) {
+		lots, err := store.ListLots(ctx, s.pool)
+		if err != nil {
+			logger.Error("otopark listesi okunamadi", "hata", err)
+			return
+		}
+		now := time.Now()
+		for _, lot := range lots {
+			if ctx.Err() != nil {
+				return
+			}
+			d, err := s.DetectAndFixDrift(ctx, lot.ID, now)
+			if err != nil {
+				logger.Error("sayac kaymasi denetimi basarisiz", "lot_id", lot.ID, "hata", err)
+				continue
+			}
+			if d.Drifted {
+				logger.Warn("sayac kaymasi duzeltildi", "lot_id", lot.ID,
+					"saklanan", d.Stored, "yeniden", d.Recomputed)
+			}
+		}
+	})
+}
+
+func (s *Service) runLoop(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+	if ctx.Err() != nil {
+		return
+	}
+	fn(ctx)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fn(ctx)
+		}
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"parkakil/internal/auth"
+	"parkakil/internal/service/occupancysvc"
 	"parkakil/internal/store"
 )
 
@@ -22,6 +23,7 @@ type Deps struct {
 	CameraKey   string
 	DB          store.Querier
 	SessionTTL  time.Duration
+	Occupancy   *occupancysvc.Service
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -56,6 +58,8 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	})
 
 	r.With(requireAuth(deps), requireRole(auth.RoleAdmin)).Get("/admin/users", adminUsersHandler(deps))
+
+	mountOpsRoutes(r, deps)
 
 	if extra != nil {
 		extra(r)
