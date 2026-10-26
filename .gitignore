@@ -8,7 +8,10 @@ web/dist/
 # opencode köprüsü
 OPENCODE-BRIF.md
 opencode-*.log
+opencode-yaz.js
 
-# ajan çalışma kopyaları
-.claude/worktrees/
+# ekip içi orkestra notları ve ajan dosyaları
+CLAUDE.md
+KOD-SISTEMI.md
+.claude/
 !.env.example
