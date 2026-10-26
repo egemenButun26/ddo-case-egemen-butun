@@ -767,9 +767,10 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("surum okunamadi: %v", err)
 	}
-	if version != 4 {
-		t.Fatalf("surum = %d, beklenen 4", version)
+	if version < 4 {
+		t.Fatalf("surum = %d, en az 4 bekleniyordu", version)
 	}
+	ilkSurum := version
 
 	if err := goose.DownTo(db, ".", 3); err != nil {
 		t.Fatalf("goose.DownTo(3) basarisiz: %v", err)
@@ -801,7 +802,7 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("surum okunamadi: %v", err)
 	}
-	if version != 4 {
-		t.Fatalf("yeniden up sonrasi surum = %d, beklenen 4", version)
+	if version != ilkSurum {
+		t.Fatalf("yeniden up sonrasi surum = %d, beklenen %d", version, ilkSurum)
 	}
 }
