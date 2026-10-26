@@ -318,7 +318,7 @@ func TestRecomputeVeDrift(t *testing.T) {
 	}
 
 	if _, err := pool.Exec(context.Background(),
-		`UPDATE lot_counters SET occupied = occupied + 7 WHERE lot_id = $1`, lotID); err != nil {
+		`UPDATE "ya-lot_counters" SET occupied = occupied + 7 WHERE lot_id = $1`, lotID); err != nil {
 		t.Fatalf("sayac elle bozulamadi: %v", err)
 	}
 
@@ -335,7 +335,7 @@ func TestRecomputeVeDrift(t *testing.T) {
 
 	var kayitSayisi int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM counter_drifts WHERE lot_id = $1`, lotID).Scan(&kayitSayisi); err != nil {
+		`SELECT count(*) FROM "ya-counter_drifts" WHERE lot_id = $1`, lotID).Scan(&kayitSayisi); err != nil {
 		t.Fatalf("kayma kayitlari okunamadi: %v", err)
 	}
 	if kayitSayisi != 1 {
@@ -343,7 +343,7 @@ func TestRecomputeVeDrift(t *testing.T) {
 	}
 	var corrected bool
 	if err := pool.QueryRow(context.Background(),
-		`SELECT corrected FROM counter_drifts WHERE lot_id = $1`, lotID).Scan(&corrected); err != nil {
+		`SELECT corrected FROM "ya-counter_drifts" WHERE lot_id = $1`, lotID).Scan(&corrected); err != nil {
 		t.Fatalf("corrected okunamadi: %v", err)
 	}
 	if !corrected {
@@ -358,7 +358,7 @@ func TestRecomputeVeDrift(t *testing.T) {
 		t.Fatalf("ikinci tespit kayma buldu: %+v", d)
 	}
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM counter_drifts WHERE lot_id = $1`, lotID).Scan(&kayitSayisi); err != nil {
+		`SELECT count(*) FROM "ya-counter_drifts" WHERE lot_id = $1`, lotID).Scan(&kayitSayisi); err != nil {
 		t.Fatalf("kayma kayitlari okunamadi: %v", err)
 	}
 	if kayitSayisi != 1 {
@@ -392,7 +392,7 @@ func TestRezervasyonGelinceArrived(t *testing.T) {
 		arri   *time.Time
 	)
 	if err := pool.QueryRow(context.Background(),
-		`SELECT status, session_id, arrived_at FROM reservations WHERE id = $1`, r.ID,
+		`SELECT status, session_id, arrived_at FROM "ya-reservations" WHERE id = $1`, r.ID,
 	).Scan(&status, &sess, &arri); err != nil {
 		t.Fatalf("rezervasyon okunamadi: %v", err)
 	}

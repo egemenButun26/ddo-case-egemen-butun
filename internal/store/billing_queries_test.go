@@ -51,7 +51,7 @@ func TestAddProrationInvoiceSamePeriod(t *testing.T) {
 	}
 	var adet int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM invoices WHERE subscription_id = $1 AND period_start = $2 AND kind = $3`,
+		`SELECT count(*) FROM "ya-invoices" WHERE subscription_id = $1 AND period_start = $2 AND kind = $3`,
 		subID, tarih(2026, 4, 1), store.InvoiceKindProrationCharge,
 	).Scan(&adet); err != nil {
 		t.Fatalf("fatura sayisi: %v", err)

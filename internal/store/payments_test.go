@@ -178,7 +178,7 @@ func TestPaymentUniqueConstraints(t *testing.T) {
 func TestListExpiredPending(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `DELETE FROM payments WHERE status = 'pending'`); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM "ya-payments" WHERE status = 'pending'`); err != nil {
 		t.Fatalf("bekleyen odemeler temizlenemedi: %v", err)
 	}
 	lotID, tariffID := lotHazirla(t, pool)
@@ -265,7 +265,7 @@ func TestRefundStore(t *testing.T) {
 		t.Fatalf("ikinci iade: %v", err)
 	}
 	if _, err := pool.Exec(ctx,
-		`UPDATE refunds SET status = 'failed', completed_at = requested_at + interval '1 minute' WHERE id = $1`, ikinciID,
+		`UPDATE "ya-refunds" SET status = 'failed', completed_at = requested_at + interval '1 minute' WHERE id = $1`, ikinciID,
 	); err != nil {
 		t.Fatalf("iade durumu guncellenemedi: %v", err)
 	}

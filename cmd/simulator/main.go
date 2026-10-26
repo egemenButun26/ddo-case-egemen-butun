@@ -249,7 +249,7 @@ func loadLots(ctx context.Context, databaseURL string) ([]simulator.Lot, error) 
 	}
 	defer pool.Close()
 
-	rows, err := pool.Query(ctx, `SELECT id, code, capacity FROM lots ORDER BY id`)
+	rows, err := pool.Query(ctx, `SELECT id, code, capacity FROM "ya-lots" ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

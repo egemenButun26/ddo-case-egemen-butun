@@ -11,7 +11,7 @@ import (
 func CreateLot(ctx context.Context, q Querier, code, name string, capacity int) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO lots (code, name, capacity) VALUES ($1, $2, $3) RETURNING id`,
+		`INSERT INTO "ya-lots" (code, name, capacity) VALUES ($1, $2, $3) RETURNING id`,
 		code, name, capacity,
 	).Scan(&id)
 	if err != nil {
@@ -31,7 +31,7 @@ type LotSummary struct {
 // ListLots, otoparklari kimlik sirasiyla doner.
 func ListLots(ctx context.Context, q Querier) ([]LotSummary, error) {
 	rows, err := q.Query(ctx,
-		`SELECT id, code, name, capacity FROM lots ORDER BY id`,
+		`SELECT id, code, name, capacity FROM "ya-lots" ORDER BY id`,
 	)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func ListLots(ctx context.Context, q Querier) ([]LotSummary, error) {
 // Yoksa ErrLotNotFound doner.
 func LockLot(ctx context.Context, q Querier, lotID int64) (int, error) {
 	var capacity int
-	err := q.QueryRow(ctx, `SELECT capacity FROM lots WHERE id = $1 FOR NO KEY UPDATE`, lotID).Scan(&capacity)
+	err := q.QueryRow(ctx, `SELECT capacity FROM "ya-lots" WHERE id = $1 FOR NO KEY UPDATE`, lotID).Scan(&capacity)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, ErrLotNotFound
 	}

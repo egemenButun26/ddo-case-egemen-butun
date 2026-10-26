@@ -292,7 +292,7 @@ func t4Sayi(m map[string]any, key string) int64 {
 func t4SonOdemeID(t *testing.T, pool *pgxpool.Pool) int64 {
 	t.Helper()
 	var id int64
-	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(max(id), 0) FROM payments`).Scan(&id); err != nil {
+	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(max(id), 0) FROM "ya-payments"`).Scan(&id); err != nil {
 		t.Fatalf("son odeme: %v", err)
 	}
 	return id
@@ -302,7 +302,7 @@ func t4AuditSayisi(t *testing.T, pool *pgxpool.Pool, action, entityID string) in
 	t.Helper()
 	var sayi int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM audit_log WHERE action = $1 AND entity_id = $2`, action, entityID).Scan(&sayi); err != nil {
+		`SELECT count(*) FROM "ya-audit_log" WHERE action = $1 AND entity_id = $2`, action, entityID).Scan(&sayi); err != nil {
 		t.Fatalf("denetim sayisi: %v", err)
 	}
 	return sayi
@@ -488,7 +488,7 @@ func TestT4HttpProviderNotifications(t *testing.T) {
 		t.Fatalf("yinelenen yanit = %v", tekrar)
 	}
 	var sayi int
-	if err := o.pool.QueryRow(context.Background(), `SELECT count(*) FROM payments WHERE id = $1`, paymentID).Scan(&sayi); err != nil {
+	if err := o.pool.QueryRow(context.Background(), `SELECT count(*) FROM "ya-payments" WHERE id = $1`, paymentID).Scan(&sayi); err != nil {
 		t.Fatalf("odeme sayisi: %v", err)
 	}
 	if sayi != 1 {
@@ -558,7 +558,7 @@ func TestT4HttpProviderNotifications(t *testing.T) {
 	}
 	var iadeSayi int
 	if err := o2.pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM refunds WHERE payment_id = $1 AND reason = 'overpaid'`, ikinci.PaymentID).Scan(&iadeSayi); err != nil {
+		`SELECT count(*) FROM "ya-refunds" WHERE payment_id = $1 AND reason = 'overpaid'`, ikinci.PaymentID).Scan(&iadeSayi); err != nil {
 		t.Fatalf("iade sayisi: %v", err)
 	}
 	if iadeSayi != 1 {
@@ -838,7 +838,7 @@ func (o *t4Ortam) borcToplam(t *testing.T, plaka string) tariff.Kurus {
 	t.Helper()
 	var toplam tariff.Kurus
 	if err := o.pool.QueryRow(context.Background(),
-		`SELECT COALESCE(sum(remaining_kurus), 0) FROM debts WHERE plate = $1 AND status = 'open'`,
+		`SELECT COALESCE(sum(remaining_kurus), 0) FROM "ya-debts" WHERE plate = $1 AND status = 'open'`,
 		plate.Normalize(plaka)).Scan(&toplam); err != nil {
 		t.Fatalf("borc toplami: %v", err)
 	}

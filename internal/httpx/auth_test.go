@@ -116,7 +116,7 @@ func auditSayisi(t *testing.T, pool *pgxpool.Pool, action string) int {
 	t.Helper()
 	var sayi int
 	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM audit_log WHERE action = $1`, action,
+		`SELECT count(*) FROM "ya-audit_log" WHERE action = $1`, action,
 	).Scan(&sayi); err != nil {
 		t.Fatalf("denetim sayisi okunamadi: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestAuthLoginWrongPassword(t *testing.T) {
 	}
 	var yeni string
 	if err := pool.QueryRow(context.Background(),
-		`SELECT coalesce(new_value::text, '') FROM audit_log WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1`,
+		`SELECT coalesce(new_value::text, '') FROM "ya-audit_log" WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1`,
 	).Scan(&yeni); err != nil {
 		t.Fatalf("denetim kaydi okunamadi: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestAuthMeExpired(t *testing.T) {
 	user := authKullanici(t, pool, auth.RoleDriver, true)
 	token := benzersiz("suresi-dolmus-token")
 	if _, err := pool.Exec(context.Background(),
-		`INSERT INTO auth_sessions (user_id, token_hash, created_at, expires_at)
+		`INSERT INTO "ya-auth_sessions" (user_id, token_hash, created_at, expires_at)
 		 VALUES ($1, $2, now() - interval '2 hours', now() - interval '1 hour')`,
 		user.ID, auth.HashToken(token),
 	); err != nil {
@@ -315,7 +315,7 @@ func TestAuthMeInactive(t *testing.T) {
 	h, pool := authRouter(t)
 	user := authKullanici(t, pool, auth.RoleDriver, true)
 	giris := authLogin(t, h, user.Email, authTestParola)
-	if _, err := pool.Exec(context.Background(), `UPDATE users SET active = false WHERE id = $1`, user.ID); err != nil {
+	if _, err := pool.Exec(context.Background(), `UPDATE "ya-qo-users" SET active = false WHERE id = $1`, user.ID); err != nil {
 		t.Fatalf("kullanici pasiflestirilemedi: %v", err)
 	}
 
@@ -490,7 +490,7 @@ func TestAuthLoginFailedAudit(t *testing.T) {
 	var kayit string
 	if err := pool.QueryRow(context.Background(),
 		`SELECT coalesce(new_value::text, '') || ' ' || coalesce(old_value::text, '')
-		 FROM audit_log WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1`,
+		 FROM "ya-audit_log" WHERE action = 'auth.login_failed' ORDER BY id DESC LIMIT 1`,
 	).Scan(&kayit); err != nil {
 		t.Fatalf("denetim okunamadi: %v", err)
 	}
@@ -663,7 +663,7 @@ type sessionHataQuerier struct {
 }
 
 func (q sessionHataQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	if strings.Contains(sql, "INSERT INTO auth_sessions") {
+	if strings.Contains(sql, "INSERT INTO \"ya-auth_sessions\"") {
 		return hataRow{}
 	}
 	return q.Querier.QueryRow(ctx, sql, args...)
@@ -674,7 +674,7 @@ type auditHataQuerier struct {
 }
 
 func (q auditHataQuerier) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	if strings.Contains(sql, "audit_log") {
+	if strings.Contains(sql, "ya-audit_log") {
 		return pgconn.CommandTag{}, errors.New("denetim yazilamadi")
 	}
 	return q.Querier.Exec(ctx, sql, args...)

@@ -70,7 +70,7 @@ const reservationColumns = `id, lot_id, plate, status, reserved_at, expires_at,
 // varsa ErrReservationExists doner.
 func InsertReservation(ctx context.Context, q Querier, lotID int64, plate string, reservedAt, expiresAt time.Time) (occupancy.Reservation, error) {
 	r, err := scanReservation(q.QueryRow(ctx,
-		`INSERT INTO reservations (lot_id, plate, status, reserved_at, expires_at)
+		`INSERT INTO "ya-reservations" (lot_id, plate, status, reserved_at, expires_at)
 		 VALUES ($1, $2, 'active', $3, $4)
 		 RETURNING `+reservationColumns,
 		lotID, plate, reservedAt, expiresAt,
@@ -84,7 +84,7 @@ func InsertReservation(ctx context.Context, q Querier, lotID int64, plate string
 // GetReservation, kimligiyle rezervasyonu doner.
 func GetReservation(ctx context.Context, q Querier, id int64) (occupancy.Reservation, error) {
 	r, err := scanReservation(q.QueryRow(ctx,
-		`SELECT `+reservationColumns+` FROM reservations WHERE id = $1`, id,
+		`SELECT `+reservationColumns+` FROM "ya-reservations" WHERE id = $1`, id,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return occupancy.Reservation{}, ErrNotFound
@@ -98,7 +98,7 @@ func GetReservation(ctx context.Context, q Querier, id int64) (occupancy.Reserva
 // ListActiveReservations, otoparkin aktif rezervasyonlarini kimlik sirasiyla doner.
 func ListActiveReservations(ctx context.Context, q Querier, lotID int64) ([]occupancy.Reservation, error) {
 	rows, err := q.Query(ctx,
-		`SELECT `+reservationColumns+` FROM reservations
+		`SELECT `+reservationColumns+` FROM "ya-reservations"
 		 WHERE lot_id = $1 AND status = 'active' ORDER BY id`,
 		lotID,
 	)
@@ -125,7 +125,7 @@ func ListActiveReservations(ctx context.Context, q Querier, lotID int64) ([]occu
 func CountActiveReservations(ctx context.Context, q Querier, lotID int64) (int, error) {
 	var n int
 	err := q.QueryRow(ctx,
-		`SELECT count(*) FROM reservations WHERE lot_id = $1 AND status = 'active'`,
+		`SELECT count(*) FROM "ya-reservations" WHERE lot_id = $1 AND status = 'active'`,
 		lotID,
 	).Scan(&n)
 	return n, err
@@ -136,7 +136,7 @@ func CountActiveReservations(ctx context.Context, q Querier, lotID int64) (int, 
 func MarkReservationArrivedByPlate(ctx context.Context, q Querier, lotID int64, plate string, sessionID int64, arrivedAt time.Time) (bool, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`UPDATE reservations
+		`UPDATE "ya-reservations"
 		 SET status = 'arrived', arrived_at = $3, session_id = $4
 		 WHERE lot_id = $1 AND plate = $2 AND status = 'active'
 		 RETURNING id`,
@@ -155,7 +155,7 @@ func MarkReservationArrivedByPlate(ctx context.Context, q Querier, lotID int64, 
 // aktif degilse ErrReservationNotActive doner.
 func CancelReservation(ctx context.Context, q Querier, id int64, now time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE reservations SET status = 'cancelled', released_at = $2
+		`UPDATE "ya-reservations" SET status = 'cancelled', released_at = $2
 		 WHERE id = $1 AND status = 'active'`,
 		id, now,
 	)
@@ -166,7 +166,7 @@ func CancelReservation(ctx context.Context, q Querier, id int64, now time.Time) 
 		return nil
 	}
 	var status string
-	err = q.QueryRow(ctx, `SELECT status FROM reservations WHERE id = $1`, id).Scan(&status)
+	err = q.QueryRow(ctx, `SELECT status FROM "ya-reservations" WHERE id = $1`, id).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -181,9 +181,9 @@ func CancelReservation(ctx context.Context, q Querier, id int64, now time.Time) 
 // secilir; eszamanli cagrilar ayni satiri iki kez islemez.
 func ReleaseExpiredReservations(ctx context.Context, q Querier, now time.Time) (int, error) {
 	tag, err := q.Exec(ctx,
-		`UPDATE reservations SET status = 'released', released_at = $1
+		`UPDATE "ya-reservations" SET status = 'released', released_at = $1
 		 WHERE id IN (
-		   SELECT id FROM reservations
+		   SELECT id FROM "ya-reservations"
 		   WHERE status = 'active' AND expires_at <= $1
 		   FOR UPDATE SKIP LOCKED
 		 )`,

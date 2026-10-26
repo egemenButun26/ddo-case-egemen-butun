@@ -100,7 +100,7 @@ func TestMarkReservationArrived(t *testing.T) {
 		arrive *time.Time
 	)
 	if err := pool.QueryRow(ctx,
-		`SELECT status, session_id, arrived_at FROM reservations WHERE id = $1`, r.ID,
+		`SELECT status, session_id, arrived_at FROM "ya-reservations" WHERE id = $1`, r.ID,
 	).Scan(&status, &sess, &arrive); err != nil {
 		t.Fatalf("rezervasyon okunamadi: %v", err)
 	}
@@ -153,15 +153,15 @@ func TestCounterDriftsAppendOnly(t *testing.T) {
 		t.Fatalf("kayma kaydi eklenemedi: %v", err)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE counter_drifts SET corrected = false WHERE lot_id = $1`, lotID); err == nil {
+	if _, err := pool.Exec(ctx, `UPDATE "ya-counter_drifts" SET corrected = false WHERE lot_id = $1`, lotID); err == nil {
 		t.Fatalf("counter_drifts UPDATE kabul edildi")
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM counter_drifts WHERE lot_id = $1`, lotID); err == nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM "ya-counter_drifts" WHERE lot_id = $1`, lotID); err == nil {
 		t.Fatalf("counter_drifts DELETE kabul edildi")
 	}
 
 	var n int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM counter_drifts WHERE lot_id = $1`, lotID).Scan(&n); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM "ya-counter_drifts" WHERE lot_id = $1`, lotID).Scan(&n); err != nil {
 		t.Fatalf("kayma sayisi okunamadi: %v", err)
 	}
 	if n != 1 {
@@ -190,7 +190,7 @@ func TestLotCounterSchema(t *testing.T) {
 		t.Fatalf("sayac = %d, hata %v; beklenen 1", n, err)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE lot_counters SET occupied = -1 WHERE lot_id = $1`, lotID); pgKodu(err) != "23514" {
+	if _, err := pool.Exec(ctx, `UPDATE "ya-lot_counters" SET occupied = -1 WHERE lot_id = $1`, lotID); pgKodu(err) != "23514" {
 		t.Fatalf("negatif sayac hata = %v (kod %q), beklenen 23514", err, pgKodu(err))
 	}
 

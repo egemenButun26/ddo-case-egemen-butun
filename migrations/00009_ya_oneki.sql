@@ -1,0 +1,47 @@
+-- +goose Up
+ALTER TABLE app_meta RENAME TO "ya-app_meta";
+ALTER TABLE lots RENAME TO "ya-lots";
+ALTER TABLE tariff_versions RENAME TO "ya-tariff_versions";
+ALTER TABLE plate_events RENAME TO "ya-plate_events";
+ALTER TABLE sessions RENAME TO "ya-sessions";
+ALTER TABLE review_items RENAME TO "ya-review_items";
+ALTER TABLE payments RENAME TO "ya-payments";
+ALTER TABLE refunds RENAME TO "ya-refunds";
+ALTER TABLE debts RENAME TO "ya-debts";
+ALTER TABLE users RENAME TO "ya-qo-users";
+ALTER TABLE auth_sessions RENAME TO "ya-auth_sessions";
+ALTER TABLE audit_log RENAME TO "ya-audit_log";
+ALTER TABLE reservations RENAME TO "ya-reservations";
+ALTER TABLE lot_counters RENAME TO "ya-lot_counters";
+ALTER TABLE counter_drifts RENAME TO "ya-counter_drifts";
+ALTER TABLE plans RENAME TO "ya-plans";
+ALTER TABLE subscriptions RENAME TO "ya-subscriptions";
+ALTER TABLE invoices RENAME TO "ya-invoices";
+ALTER TABLE billing_runs RENAME TO "ya-billing_runs";
+ALTER TABLE provider_settlements RENAME TO "ya-provider_settlements";
+ALTER TABLE reconciliation_reports RENAME TO "ya-reconciliation_reports";
+ALTER TABLE blacklist RENAME TO "ya-blacklist";
+
+-- +goose Down
+ALTER TABLE "ya-blacklist" RENAME TO blacklist;
+ALTER TABLE "ya-reconciliation_reports" RENAME TO reconciliation_reports;
+ALTER TABLE "ya-provider_settlements" RENAME TO provider_settlements;
+ALTER TABLE "ya-billing_runs" RENAME TO billing_runs;
+ALTER TABLE "ya-invoices" RENAME TO invoices;
+ALTER TABLE "ya-subscriptions" RENAME TO subscriptions;
+ALTER TABLE "ya-plans" RENAME TO plans;
+ALTER TABLE "ya-counter_drifts" RENAME TO counter_drifts;
+ALTER TABLE "ya-lot_counters" RENAME TO lot_counters;
+ALTER TABLE "ya-reservations" RENAME TO reservations;
+ALTER TABLE "ya-audit_log" RENAME TO audit_log;
+ALTER TABLE "ya-auth_sessions" RENAME TO auth_sessions;
+ALTER TABLE "ya-qo-users" RENAME TO users;
+ALTER TABLE "ya-debts" RENAME TO debts;
+ALTER TABLE "ya-refunds" RENAME TO refunds;
+ALTER TABLE "ya-payments" RENAME TO payments;
+ALTER TABLE "ya-review_items" RENAME TO review_items;
+ALTER TABLE "ya-sessions" RENAME TO sessions;
+ALTER TABLE "ya-plate_events" RENAME TO plate_events;
+ALTER TABLE "ya-tariff_versions" RENAME TO tariff_versions;
+ALTER TABLE "ya-lots" RENAME TO lots;
+ALTER TABLE "ya-app_meta" RENAME TO app_meta;

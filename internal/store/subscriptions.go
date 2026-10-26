@@ -65,7 +65,7 @@ func InsertPlan(ctx context.Context, q Querier, code string, lotID int64, price 
 	}
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO plans (code, lot_id, monthly_price_kurus) VALUES ($1, $2, $3) RETURNING id`,
+		`INSERT INTO "ya-plans" (code, lot_id, monthly_price_kurus) VALUES ($1, $2, $3) RETURNING id`,
 		code, lotID, int64(price),
 	).Scan(&id)
 	if isConstraint(err, "plans_code_uniq") {
@@ -79,7 +79,7 @@ func InsertPlan(ctx context.Context, q Querier, code string, lotID int64, price 
 
 func ListPlans(ctx context.Context, q Querier) ([]Plan, error) {
 	rows, err := q.Query(ctx,
-		`SELECT id, code, lot_id, monthly_price_kurus, active FROM plans ORDER BY id`,
+		`SELECT id, code, lot_id, monthly_price_kurus, active FROM "ya-plans" ORDER BY id`,
 	)
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func GetPlanByCode(ctx context.Context, q Querier, code string) (Plan, error) {
 	var p Plan
 	var price int64
 	err := q.QueryRow(ctx,
-		`SELECT id, code, lot_id, monthly_price_kurus, active FROM plans WHERE code = $1`, code,
+		`SELECT id, code, lot_id, monthly_price_kurus, active FROM "ya-plans" WHERE code = $1`, code,
 	).Scan(&p.ID, &p.Code, &p.LotID, &price, &p.Active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Plan{}, ErrPlanNotFound
@@ -121,8 +121,8 @@ func GetPlanByCode(ctx context.Context, q Querier, code string) (Plan, error) {
 const subscriptionSelect = `SELECT s.id, s.plan_id, p.code, p.monthly_price_kurus, p.lot_id,
        s.plate, s.user_id, s.status, s.current_period_start, s.current_period_end,
        s.cancelled_at, s.created_at, s.updated_at
-  FROM subscriptions s
-  JOIN plans p ON p.id = s.plan_id`
+  FROM "ya-subscriptions" s
+  JOIN "ya-plans" p ON p.id = s.plan_id`
 
 func scanSubscription(row pgx.Row) (Subscription, error) {
 	var s Subscription
@@ -157,7 +157,7 @@ func InsertSubscription(ctx context.Context, q Querier, planID int64, plate stri
 func InsertSubscriptionWithUser(ctx context.Context, q Querier, planID int64, plate string, userID *int64, periodStart, periodEnd time.Time) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO subscriptions (plan_id, plate, user_id, status, current_period_start, current_period_end)
+		`INSERT INTO "ya-subscriptions" (plan_id, plate, user_id, status, current_period_start, current_period_end)
 		 VALUES ($1, $2, $3, 'active', $4, $5) RETURNING id`,
 		planID, plate, userID, dateText(periodStart), dateText(periodEnd),
 	).Scan(&id)
@@ -172,7 +172,7 @@ func InsertSubscriptionWithUser(ctx context.Context, q Querier, planID int64, pl
 
 func SetSubscriptionStatus(ctx context.Context, q Querier, id int64, status billing.Status, cancelledAt *time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE subscriptions SET status = $2, cancelled_at = $3, updated_at = now() WHERE id = $1`,
+		`UPDATE "ya-subscriptions" SET status = $2, cancelled_at = $3, updated_at = now() WHERE id = $1`,
 		id, string(status), cancelledAt,
 	)
 	if err != nil {
@@ -186,7 +186,7 @@ func SetSubscriptionStatus(ctx context.Context, q Querier, id int64, status bill
 
 func SetSubscriptionPlan(ctx context.Context, q Querier, id, planID int64) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE subscriptions SET plan_id = $2, updated_at = now() WHERE id = $1`, id, planID,
+		`UPDATE "ya-subscriptions" SET plan_id = $2, updated_at = now() WHERE id = $1`, id, planID,
 	)
 	if err != nil {
 		return err
@@ -199,7 +199,7 @@ func SetSubscriptionPlan(ctx context.Context, q Querier, id, planID int64) error
 
 func SetSubscriptionPeriod(ctx context.Context, q Querier, id int64, periodStart, periodEnd time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE subscriptions SET current_period_start = $2, current_period_end = $3, updated_at = now()
+		`UPDATE "ya-subscriptions" SET current_period_start = $2, current_period_end = $3, updated_at = now()
 		 WHERE id = $1`,
 		id, dateText(periodStart), dateText(periodEnd),
 	)

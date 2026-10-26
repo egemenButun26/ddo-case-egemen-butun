@@ -175,7 +175,7 @@ func TestAuthSessionValidity(t *testing.T) {
 
 	suresiDolmus := auth.HashToken(benzersiz("suresi-dolmus"))
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO auth_sessions (user_id, token_hash, created_at, expires_at)
+		`INSERT INTO "ya-auth_sessions" (user_id, token_hash, created_at, expires_at)
 		 VALUES ($1, $2, now() - interval '2 hours', now() - interval '1 hour')`,
 		userID, suresiDolmus,
 	); err != nil {
@@ -218,7 +218,7 @@ func TestAuditAppendOnly(t *testing.T) {
 	var oldRole, newRole, requestID string
 	if err := pool.QueryRow(ctx,
 		`SELECT id, old_value->>'role', new_value->>'role', request_id
-		 FROM audit_log WHERE action = 'test.action' AND entity_id = '42'
+		 FROM "ya-audit_log" WHERE action = 'test.action' AND entity_id = '42'
 		 ORDER BY id DESC LIMIT 1`,
 	).Scan(&id, &oldRole, &newRole, &requestID); err != nil {
 		t.Fatalf("denetim kaydi okunamadi: %v", err)
@@ -227,12 +227,12 @@ func TestAuditAppendOnly(t *testing.T) {
 		t.Fatalf("denetim degerleri yanlis: %s %s %s", oldRole, newRole, requestID)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE audit_log SET action = 'degisti' WHERE id = $1`, id); err == nil {
+	if _, err := pool.Exec(ctx, `UPDATE "ya-audit_log" SET action = 'degisti' WHERE id = $1`, id); err == nil {
 		t.Fatal("audit_log UPDATE kabul edildi")
 	} else if !strings.Contains(err.Error(), "append-only") {
 		t.Fatalf("UPDATE hatasi append-only icermeli: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM audit_log WHERE id = $1`, id); err == nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM "ya-audit_log" WHERE id = $1`, id); err == nil {
 		t.Fatal("audit_log DELETE kabul edildi")
 	} else if !strings.Contains(err.Error(), "append-only") {
 		t.Fatalf("DELETE hatasi append-only icermeli: %v", err)

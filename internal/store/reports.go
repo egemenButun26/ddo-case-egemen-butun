@@ -22,25 +22,25 @@ func GetDailyReport(ctx context.Context, q Querier, lotID int64, start, end time
 	var r DailyReport
 	err := q.QueryRow(ctx,
 		`SELECT
-		   (SELECT count(*) FROM plate_events
+		   (SELECT count(*) FROM "ya-plate_events"
 		     WHERE direction = 'entry' AND captured_at >= $2 AND captured_at < $3
 		       AND ($1 = 0 OR lot_id = $1)),
-		   (SELECT count(*) FROM plate_events
+		   (SELECT count(*) FROM "ya-plate_events"
 		     WHERE direction = 'exit' AND captured_at >= $2 AND captured_at < $3
 		       AND ($1 = 0 OR lot_id = $1)),
-		   (SELECT count(*) FROM sessions
+		   (SELECT count(*) FROM "ya-sessions"
 		     WHERE status = 'closed' AND exited_at >= $2 AND exited_at < $3
 		       AND ($1 = 0 OR lot_id = $1)),
-		   (SELECT COALESCE(sum(amount_kurus), 0) FROM sessions
+		   (SELECT COALESCE(sum(amount_kurus), 0) FROM "ya-sessions"
 		     WHERE status = 'closed' AND exited_at >= $2 AND exited_at < $3
 		       AND ($1 = 0 OR lot_id = $1)),
-		   (SELECT COALESCE(sum(p.amount_kurus), 0) FROM payments p
-		     JOIN sessions s ON s.id = p.session_id
+		   (SELECT COALESCE(sum(p.amount_kurus), 0) FROM "ya-payments" p
+		     JOIN "ya-sessions" s ON s.id = p.session_id
 		     WHERE p.status = 'succeeded' AND p.paid_at >= $2 AND p.paid_at < $3
 		       AND ($1 = 0 OR s.lot_id = $1)),
-		   (SELECT COALESCE(sum(remaining_kurus), 0) FROM debts
+		   (SELECT COALESCE(sum(remaining_kurus), 0) FROM "ya-debts"
 		     WHERE status = 'open' AND ($1 = 0 OR lot_id = $1)),
-		   (SELECT count(*) FROM review_items
+		   (SELECT count(*) FROM "ya-review_items"
 		     WHERE status = 'open' AND created_at >= $2 AND created_at < $3
 		       AND ($1 = 0 OR lot_id = $1))`,
 		lotID, start, end,

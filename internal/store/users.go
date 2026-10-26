@@ -37,7 +37,7 @@ func CreateUser(ctx context.Context, q Querier, p CreateUserParams) (int64, erro
 	}
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO users (email, name, role, password_hash, plate, active)
+		`INSERT INTO "ya-qo-users" (email, name, role, password_hash, plate, active)
 		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
 		p.Email, p.Name, string(p.Role), p.PasswordHash, p.Plate, active,
 	).Scan(&id)
@@ -53,7 +53,7 @@ func CreateUserIfMissing(ctx context.Context, q Querier, p CreateUserParams) err
 		active = *p.Active
 	}
 	_, err := q.Exec(ctx,
-		`INSERT INTO users (email, name, role, password_hash, plate, active)
+		`INSERT INTO "ya-qo-users" (email, name, role, password_hash, plate, active)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (email) DO NOTHING`,
 		p.Email, p.Name, string(p.Role), p.PasswordHash, p.Plate, active,
@@ -64,7 +64,7 @@ func CreateUserIfMissing(ctx context.Context, q Querier, p CreateUserParams) err
 func GetUserByEmail(ctx context.Context, q Querier, email string) (User, error) {
 	row := q.QueryRow(ctx,
 		`SELECT id, email, name, role, password_hash, plate, active, created_at
-		 FROM users WHERE email = $1`,
+		 FROM "ya-qo-users" WHERE email = $1`,
 		email,
 	)
 	return scanUser(row)
@@ -73,7 +73,7 @@ func GetUserByEmail(ctx context.Context, q Querier, email string) (User, error) 
 func GetUser(ctx context.Context, q Querier, id int64) (User, error) {
 	row := q.QueryRow(ctx,
 		`SELECT id, email, name, role, password_hash, plate, active, created_at
-		 FROM users WHERE id = $1`,
+		 FROM "ya-qo-users" WHERE id = $1`,
 		id,
 	)
 	return scanUser(row)
@@ -82,7 +82,7 @@ func GetUser(ctx context.Context, q Querier, id int64) (User, error) {
 func ListUsers(ctx context.Context, q Querier, afterID int64, limit int) ([]User, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, email, name, role, password_hash, plate, active, created_at
-		 FROM users WHERE id > $1 ORDER BY id LIMIT $2`,
+		 FROM "ya-qo-users" WHERE id > $1 ORDER BY id LIMIT $2`,
 		afterID, limit,
 	)
 	if err != nil {

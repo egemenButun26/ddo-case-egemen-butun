@@ -177,11 +177,23 @@ function bekle(ms) {
 async function statikKontroller() {
   const composeYolu = path.join(KOK, "docker-compose.yml");
 
-  ok("a1 docker-compose.yml var, name: parkakil, container_name yok", () => {
+  ok("a1 docker-compose.yml var, name: parkakil, api container_name: ddo-limon-api", () => {
     assert.ok(fs.existsSync(composeYolu), "docker-compose.yml yok");
     const metin = fs.readFileSync(composeYolu, "utf8");
     assert.match(metin, /^name:\s*parkakil\s*$/m, "name: parkakil bulunamadi");
-    assert.ok(!/container_name\s*:/.test(metin), "container_name kullanilmamali");
+    const bloklar = servisBloklari(metin);
+    assert.ok(bloklar.api, "api servisi yok");
+    assert.ok(
+      bloklar.api.some((s) => /^\s{4}container_name\s*:\s*ddo-limon-api\s*$/.test(s)),
+      "api servisinde container_name: ddo-limon-api yok"
+    );
+    for (const [ad, satirlar] of Object.entries(bloklar)) {
+      if (ad === "api") continue;
+      assert.ok(
+        !satirlar.some((s) => /^\s{4}container_name\s*:/.test(s)),
+        ad + " servisinde container_name olmamali"
+      );
+    }
   });
 
   const metin = fs.readFileSync(composeYolu, "utf8");
@@ -353,7 +365,7 @@ async function canliKontrolleri() {
     assert.strictEqual(j.status, "ok");
   });
 
-  ok("c6 migrasyon uygulanmis ve app_meta tablosu var", () => {
+  ok("c6 migrasyon uygulanmis ve ya-app_meta tablosu var", () => {
     const kullanici = envDegeri("POSTGRES_USER") || "parkakil";
     const surum = compose([
       "exec",
@@ -374,9 +386,9 @@ async function canliKontrolleri() {
       "-U",
       kullanici,
       "-tAc",
-      "SELECT to_regclass('public.app_meta')",
+      "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'ya-app_meta'",
     ]);
-    assert.strictEqual(tablo.stdout.trim(), "app_meta", "app_meta tablosu yok");
+    assert.strictEqual(tablo.stdout.trim(), "1", "ya-app_meta tablosu yok");
   });
 
   ok("c7 api ve web imajlari root kullanici ile calismiyor", () => {

@@ -35,7 +35,7 @@ func FindEventByCameraKey(ctx context.Context, q Querier, cameraID, cameraEventI
 	err := q.QueryRow(ctx,
 		`SELECT id, lot_id, camera_id, camera_event_id, direction, plate_raw, plate_norm,
 		        captured_at, outcome, session_id
-		 FROM plate_events
+		 FROM "ya-plate_events"
 		 WHERE camera_id = $1 AND camera_event_id = $2`,
 		cameraID, cameraEventID,
 	).Scan(&ev.ID, &ev.LotID, &ev.CameraID, &ev.CameraEventID, &direction, &ev.PlateRaw,
@@ -59,7 +59,7 @@ func FindEventByCameraKey(ctx context.Context, q Querier, cameraID, cameraEventI
 func InsertEvent(ctx context.Context, q Querier, ev session.Event, plateNorm string, outcome session.Outcome, sessionID int64) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO plate_events
+		`INSERT INTO "ya-plate_events"
 		   (lot_id, camera_id, camera_event_id, direction, plate_raw, plate_norm, captured_at, outcome, session_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING id`,
@@ -75,7 +75,7 @@ func InsertEvent(ctx context.Context, q Querier, ev session.Event, plateNorm str
 // SetEventOutcome olayin sonucunu ve bagli oturumunu gunceller.
 func SetEventOutcome(ctx context.Context, q Querier, eventID int64, outcome session.Outcome, sessionID int64) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE plate_events SET outcome = $2, session_id = $3 WHERE id = $1`,
+		`UPDATE "ya-plate_events" SET outcome = $2, session_id = $3 WHERE id = $1`,
 		eventID, string(outcome), nullableID(sessionID),
 	)
 	if err != nil {
@@ -104,7 +104,7 @@ type RecentEvent struct {
 func ListRecentEvents(ctx context.Context, q Querier, lotID, beforeID int64, limit int) ([]RecentEvent, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, lot_id, direction, plate_raw, plate_norm, captured_at, outcome, session_id
-		 FROM plate_events
+		 FROM "ya-plate_events"
 		 WHERE ($1 = 0 OR lot_id = $1) AND ($2 = 0 OR id < $2)
 		 ORDER BY id DESC LIMIT $3`,
 		lotID, beforeID, limit,
@@ -144,7 +144,7 @@ func ListRecentEvents(ctx context.Context, q Querier, lotID, beforeID int64, lim
 func ListOrphanExits(ctx context.Context, q Querier, lotID int64, since time.Time) ([]session.OrphanExit, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, plate_norm, captured_at
-		 FROM plate_events
+		 FROM "ya-plate_events"
 		 WHERE lot_id = $1 AND captured_at >= $2 AND outcome = 'orphan_exit'
 		 ORDER BY captured_at, id`,
 		lotID, since,

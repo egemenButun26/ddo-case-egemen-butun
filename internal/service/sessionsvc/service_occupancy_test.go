@@ -57,10 +57,10 @@ func TestRezervasyonluKapasite(t *testing.T) {
 	if inceleme != 15 {
 		t.Fatalf("capacity_full incelemesi = %d, beklenen 15", inceleme)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 5 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 5 {
 		t.Fatalf("acik oturum = %d, beklenen 5", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM review_items WHERE lot_id = $1 AND reason = $2`,
+	if n := say(t, pool, `SELECT count(*) FROM "ya-review_items" WHERE lot_id = $1 AND reason = $2`,
 		lotID, session.ReasonCapacityFull); n != 15 {
 		t.Fatalf("capacity_full inceleme = %d, beklenen 15", n)
 	}
@@ -74,16 +74,16 @@ func TestRezervasyonluKapasite(t *testing.T) {
 			t.Fatalf("rezervasyon sahibi giris = %q, beklenen opened", r.Outcome)
 		}
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 10 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 10 {
 		t.Fatalf("toplam acik oturum = %d, beklenen 10", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM reservations WHERE lot_id = $1 AND status = 'arrived'`, lotID); n != 5 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-reservations" WHERE lot_id = $1 AND status = 'arrived'`, lotID); n != 5 {
 		t.Fatalf("arrived rezervasyon = %d, beklenen 5", n)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM reservations WHERE lot_id = $1 AND status = 'active'`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-reservations" WHERE lot_id = $1 AND status = 'active'`, lotID); n != 0 {
 		t.Fatalf("kalan aktif rezervasyon = %d, beklenen 0", n)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 10 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 10 {
 		t.Fatalf("sayac = %d, beklenen 10", n)
 	}
 }
@@ -100,7 +100,7 @@ func TestSayacGirisCikis(t *testing.T) {
 	if ilk.Outcome != session.OutcomeOpened {
 		t.Fatalf("giris = %q, beklenen opened", ilk.Outcome)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("giris sonrasi sayac = %d, beklenen 1", n)
 	}
 
@@ -112,7 +112,7 @@ func TestSayacGirisCikis(t *testing.T) {
 	if tekrar.Outcome != session.OutcomeDuplicateEntry {
 		t.Fatalf("tekrar giris = %q, beklenen duplicate_entry", tekrar.Outcome)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("tekrar giris sonrasi sayac = %d, beklenen 1", n)
 	}
 
@@ -124,7 +124,7 @@ func TestSayacGirisCikis(t *testing.T) {
 	if cikis.Outcome != session.OutcomeClosed {
 		t.Fatalf("cikis = %q, beklenen closed", cikis.Outcome)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("cikis sonrasi sayac = %d, beklenen 0", n)
 	}
 
@@ -138,7 +138,7 @@ func TestSayacGirisCikis(t *testing.T) {
 	if bekleyen.Outcome != session.OutcomeOrphanExit {
 		t.Fatalf("bekleyen cikis = %q, beklenen orphan_exit", bekleyen.Outcome)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("bekleyen cikis sonrasi sayac = %d, beklenen 0", n)
 	}
 
@@ -150,7 +150,7 @@ func TestSayacGirisCikis(t *testing.T) {
 	if !gecGiris.ClosedByOrphanExit {
 		t.Fatalf("bekleyen cikisla kapanmadi: %+v", gecGiris)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("bekleyen cikisla kapanis sonrasi sayac = %d, beklenen 0", n)
 	}
 }
@@ -165,10 +165,10 @@ func TestSayacEsZamanliAyniPlaka(t *testing.T) {
 		return svc.HandleEvent(context.Background(), ev)
 	})
 
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1 AND status = 'open'`, lotID); n != 1 {
 		t.Fatalf("acik oturum = %d, beklenen 1", n)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("sayac = %d, beklenen 1", n)
 	}
 }
@@ -195,7 +195,7 @@ func TestRezervasyonluKapasiteDolu(t *testing.T) {
 	if r := incelemeOku(t, pool, sonuc.EventID); r.Reason != session.ReasonCapacityFull {
 		t.Fatalf("inceleme nedeni = %q, beklenen %q", r.Reason, session.ReasonCapacityFull)
 	}
-	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotID); n != 0 {
+	if n := say(t, pool, `SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, lotID); n != 0 {
 		t.Fatalf("oturum sayisi = %d, beklenen 0", n)
 	}
 
@@ -208,7 +208,7 @@ func TestRezervasyonluKapasiteDolu(t *testing.T) {
 	if sahip.Outcome != session.OutcomeOpened {
 		t.Fatalf("rezervasyon sahibi girisi = %q, beklenen opened", sahip.Outcome)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("sayac = %d, beklenen 1", n)
 	}
 }
@@ -232,7 +232,7 @@ func TestRezervasyonluGirisSayac(t *testing.T) {
 	if sonuc.Outcome != session.OutcomeOpened {
 		t.Fatalf("rezervasyonlu giris = %q, beklenen opened", sonuc.Outcome)
 	}
-	if n := say(t, pool, `SELECT occupied FROM lot_counters WHERE lot_id = $1`, lotID); n != 1 {
+	if n := say(t, pool, `SELECT occupied FROM "ya-lot_counters" WHERE lot_id = $1`, lotID); n != 1 {
 		t.Fatalf("sayac = %d, beklenen 1", n)
 	}
 

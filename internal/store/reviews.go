@@ -17,7 +17,7 @@ var ErrReviewNotOpen = errors.New("inceleme acik degil")
 func InsertReview(ctx context.Context, q Querier, eventID, lotID int64, readPlate string, r session.Review) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
-		`INSERT INTO review_items
+		`INSERT INTO "ya-review_items"
 		   (event_id, lot_id, reason, read_plate, suggested_session_id, confidence,
 		    runner_up_session_id, runner_up_confidence)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -53,8 +53,8 @@ func ListReviews(ctx context.Context, q Querier, status string, afterID int64, l
 		`SELECT ri.id, ri.event_id, ri.lot_id, ri.reason, ri.read_plate, ri.status,
 		        ri.created_at, ri.resolved_at, ri.suggested_session_id,
 		        pe.plate_raw, pe.plate_norm, pe.captured_at
-		 FROM review_items ri
-		 JOIN plate_events pe ON pe.id = ri.event_id
+		 FROM "ya-review_items" ri
+		 JOIN "ya-plate_events" pe ON pe.id = ri.event_id
 		 WHERE ($1 = '' OR ri.status = $1) AND ri.id > $2
 		 ORDER BY ri.id LIMIT $3`,
 		status, afterID, limit,
@@ -103,7 +103,7 @@ func GetReview(ctx context.Context, q Querier, id int64) (ReviewRecord, error) {
 	var r ReviewRecord
 	err := q.QueryRow(ctx,
 		`SELECT id, event_id, lot_id, status, suggested_session_id
-		 FROM review_items WHERE id = $1`,
+		 FROM "ya-review_items" WHERE id = $1`,
 		id,
 	).Scan(&r.ID, &r.EventID, &r.LotID, &r.Status, &r.SuggestedSessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -118,7 +118,7 @@ func GetReview(ctx context.Context, q Querier, id int64) (ReviewRecord, error) {
 // ResolveReview, acik incelemeyi cozulmus yapar.
 func ResolveReview(ctx context.Context, q Querier, id int64, at time.Time) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE review_items SET status = 'resolved', resolved_at = $2
+		`UPDATE "ya-review_items" SET status = 'resolved', resolved_at = $2
 		 WHERE id = $1 AND status = 'open'`,
 		id, at,
 	)
@@ -129,7 +129,7 @@ func ResolveReview(ctx context.Context, q Querier, id int64, at time.Time) error
 		return nil
 	}
 	var status string
-	err = q.QueryRow(ctx, `SELECT status FROM review_items WHERE id = $1`, id).Scan(&status)
+	err = q.QueryRow(ctx, `SELECT status FROM "ya-review_items" WHERE id = $1`, id).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -142,7 +142,7 @@ func ResolveReview(ctx context.Context, q Querier, id int64, at time.Time) error
 // LinkReviewEvent, inceleme olayini verilen oturuma baglar.
 func LinkReviewEvent(ctx context.Context, q Querier, eventID, sessionID int64) error {
 	tag, err := q.Exec(ctx,
-		`UPDATE plate_events SET session_id = $2 WHERE id = $1`,
+		`UPDATE "ya-plate_events" SET session_id = $2 WHERE id = $1`,
 		eventID, sessionID,
 	)
 	if err != nil {

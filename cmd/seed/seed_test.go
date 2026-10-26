@@ -30,28 +30,28 @@ func TestSeedIdempotent(t *testing.T) {
 	if err := seed(ctx, pool, seedTestParola); err != nil {
 		t.Fatalf("ilk seed: %v", err)
 	}
-	users := sayim(t, pool, `SELECT count(*) FROM users`)
-	lots := sayim(t, pool, `SELECT count(*) FROM lots`)
-	tariffs := sayim(t, pool, `SELECT count(*) FROM tariff_versions`)
-	plans := sayim(t, pool, `SELECT count(*) FROM plans`)
-	subs := sayim(t, pool, `SELECT count(*) FROM subscriptions`)
+	users := sayim(t, pool, `SELECT count(*) FROM "ya-qo-users"`)
+	lots := sayim(t, pool, `SELECT count(*) FROM "ya-lots"`)
+	tariffs := sayim(t, pool, `SELECT count(*) FROM "ya-tariff_versions"`)
+	plans := sayim(t, pool, `SELECT count(*) FROM "ya-plans"`)
+	subs := sayim(t, pool, `SELECT count(*) FROM "ya-subscriptions"`)
 
 	if err := seed(ctx, pool, seedTestParola); err != nil {
 		t.Fatalf("ikinci seed: %v", err)
 	}
-	if got := sayim(t, pool, `SELECT count(*) FROM users`); got != users {
+	if got := sayim(t, pool, `SELECT count(*) FROM "ya-qo-users"`); got != users {
 		t.Fatalf("kullanici sayisi degisti: %d -> %d", users, got)
 	}
-	if got := sayim(t, pool, `SELECT count(*) FROM lots`); got != lots {
+	if got := sayim(t, pool, `SELECT count(*) FROM "ya-lots"`); got != lots {
 		t.Fatalf("lot sayisi degisti: %d -> %d", lots, got)
 	}
-	if got := sayim(t, pool, `SELECT count(*) FROM tariff_versions`); got != tariffs {
+	if got := sayim(t, pool, `SELECT count(*) FROM "ya-tariff_versions"`); got != tariffs {
 		t.Fatalf("tarife sayisi degisti: %d -> %d", tariffs, got)
 	}
-	if got := sayim(t, pool, `SELECT count(*) FROM plans`); got != plans {
+	if got := sayim(t, pool, `SELECT count(*) FROM "ya-plans"`); got != plans {
 		t.Fatalf("plan sayisi degisti: %d -> %d", plans, got)
 	}
-	if got := sayim(t, pool, `SELECT count(*) FROM subscriptions`); got != subs {
+	if got := sayim(t, pool, `SELECT count(*) FROM "ya-subscriptions"`); got != subs {
 		t.Fatalf("abonelik sayisi degisti: %d -> %d", subs, got)
 	}
 }
@@ -65,7 +65,10 @@ func TestSeedRolesAndLots(t *testing.T) {
 	}
 
 	roller := map[auth.Role]int{}
-	rows, err := pool.Query(ctx, `SELECT role, count(*) FROM users WHERE email LIKE '%@parkakil.test' GROUP BY role`)
+	rows, err := pool.Query(ctx,
+		`SELECT role, count(*) FROM "ya-qo-users"
+		  WHERE email LIKE '%@parkakil.test' OR email = 'seed.ardic@ddo-case.invalid'
+		  GROUP BY role`)
 	if err != nil {
 		t.Fatalf("roller okunamadi: %v", err)
 	}
@@ -87,6 +90,22 @@ func TestSeedRolesAndLots(t *testing.T) {
 		}
 	}
 
+	var ilkEmail, ilkRol string
+	if err := pool.QueryRow(ctx,
+		`SELECT email, role FROM "ya-qo-users"
+		  WHERE email = 'seed.ardic@ddo-case.invalid'
+		     OR email LIKE '%@parkakil.test'
+		  ORDER BY id LIMIT 1`,
+	).Scan(&ilkEmail, &ilkRol); err != nil {
+		t.Fatalf("ilk seed kullanicisi okunamadi: %v", err)
+	}
+	if ilkEmail != "seed.ardic@ddo-case.invalid" {
+		t.Fatalf("ilk seed kullanicisi = %q, beklenen seed.ardic@ddo-case.invalid", ilkEmail)
+	}
+	if ilkRol != string(auth.RoleAdmin) {
+		t.Fatalf("ilk seed kullanicisi rolu = %q, beklenen admin", ilkRol)
+	}
+
 	beklenenLotlar := map[string]int{
 		"KADIKOY":  120,
 		"BESIKTAS": 80,
@@ -96,7 +115,7 @@ func TestSeedRolesAndLots(t *testing.T) {
 	}
 	for code, capacity := range beklenenLotlar {
 		var got int
-		if err := pool.QueryRow(ctx, `SELECT capacity FROM lots WHERE code = $1`, code).Scan(&got); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT capacity FROM "ya-lots" WHERE code = $1`, code).Scan(&got); err != nil {
 			t.Fatalf("%s otoparki yok: %v", code, err)
 		}
 		if got != capacity {
@@ -104,17 +123,17 @@ func TestSeedRolesAndLots(t *testing.T) {
 		}
 	}
 
-	if n := sayim(t, pool, `SELECT count(*) FROM lots WHERE code = ANY($1)`, []string{"KADIKOY", "BESIKTAS", "SISLI", "USKUDAR", "BAKIRKOY"}); n != 5 {
+	if n := sayim(t, pool, `SELECT count(*) FROM "ya-lots" WHERE code = ANY($1)`, []string{"KADIKOY", "BESIKTAS", "SISLI", "USKUDAR", "BAKIRKOY"}); n != 5 {
 		t.Fatalf("demo otopark sayisi = %d, beklenen 5", n)
 	}
 
 	for _, l := range demoLots() {
 		var lotID int64
-		if err := pool.QueryRow(ctx, `SELECT id FROM lots WHERE code = $1`, l.Code).Scan(&lotID); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT id FROM "ya-lots" WHERE code = $1`, l.Code).Scan(&lotID); err != nil {
 			t.Fatalf("lot okunamadi: %v", err)
 		}
 		var sayi int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM tariff_versions WHERE lot_id = $1`, lotID).Scan(&sayi); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM "ya-tariff_versions" WHERE lot_id = $1`, lotID).Scan(&sayi); err != nil {
 			t.Fatalf("tarife sayisi: %v", err)
 		}
 		if sayi != 1 {
@@ -137,7 +156,7 @@ func TestSeedRolesAndLots(t *testing.T) {
 		var price int64
 		var planID int64
 		if err := pool.QueryRow(ctx,
-			`SELECT id, monthly_price_kurus FROM plans WHERE code = $1`, l.Code+"-AYLIK",
+			`SELECT id, monthly_price_kurus FROM "ya-plans" WHERE code = $1`, l.Code+"-AYLIK",
 		).Scan(&planID, &price); err != nil {
 			t.Fatalf("%s plani yok: %v", l.Code, err)
 		}
@@ -158,7 +177,7 @@ func TestSeedRolesAndLots(t *testing.T) {
 	var subUserID *int64
 	if err := pool.QueryRow(ctx,
 		`SELECT p.code, s.current_period_start, s.status, s.user_id
-		   FROM subscriptions s JOIN plans p ON p.id = s.plan_id
+		   FROM "ya-subscriptions" s JOIN "ya-plans" p ON p.id = s.plan_id
 		  WHERE s.plate = $1 AND s.status IN ('active','past_due')
 		  ORDER BY s.id DESC LIMIT 1`,
 		"34ABC123",

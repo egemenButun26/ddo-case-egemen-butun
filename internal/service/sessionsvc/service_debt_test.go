@@ -38,14 +38,14 @@ func TestExitDebtYazimiServis(t *testing.T) {
 		t.Helper()
 		var toplam tariff.Kurus
 		err := pool.QueryRow(context.Background(),
-			`SELECT COALESCE(sum(remaining_kurus), 0) FROM debts WHERE session_id = $1 AND status = 'open'`,
+			`SELECT COALESCE(sum(remaining_kurus), 0) FROM "ya-debts" WHERE session_id = $1 AND status = 'open'`,
 			sessionID).Scan(&toplam)
 		if err != nil {
 			t.Fatalf("borc: %v", err)
 		}
 		var adet int
 		if err := pool.QueryRow(context.Background(),
-			`SELECT count(*) FROM debts WHERE session_id = $1`, sessionID).Scan(&adet); err != nil {
+			`SELECT count(*) FROM "ya-debts" WHERE session_id = $1`, sessionID).Scan(&adet); err != nil {
 			t.Fatalf("borc sayisi: %v", err)
 		}
 		return toplam, adet > 0

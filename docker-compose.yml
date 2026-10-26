@@ -42,6 +42,7 @@ services:
 
   api:
     image: parkakil-api:local
+    container_name: ddo-limon-api
     build:
       context: .
       dockerfile: deploy/api.Dockerfile

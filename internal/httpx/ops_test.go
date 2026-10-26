@@ -457,7 +457,7 @@ func TestOpsBlacklistGiris(t *testing.T) {
 	}
 	var oturum int
 	if err := env.pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM sessions WHERE lot_id = $1`, env.lotID).Scan(&oturum); err != nil {
+		`SELECT count(*) FROM "ya-sessions" WHERE lot_id = $1`, env.lotID).Scan(&oturum); err != nil {
 		t.Fatalf("oturum sayisi okunamadi: %v", err)
 	}
 	if oturum != 0 {
@@ -465,7 +465,7 @@ func TestOpsBlacklistGiris(t *testing.T) {
 	}
 	var reason string
 	if err := env.pool.QueryRow(context.Background(),
-		`SELECT reason FROM review_items WHERE id = $1`, int64(body["review_id"].(float64))).Scan(&reason); err != nil {
+		`SELECT reason FROM "ya-review_items" WHERE id = $1`, int64(body["review_id"].(float64))).Scan(&reason); err != nil {
 		t.Fatalf("inceleme nedeni okunamadi: %v", err)
 	}
 	if reason != session.ReasonBlacklisted {
@@ -598,7 +598,7 @@ func TestOpsReportsDaily(t *testing.T) {
 	}
 
 	if _, err := env.pool.Exec(ctx,
-		`INSERT INTO payments (session_id, amount_kurus, status, provider_ref, idempotency_key,
+		`INSERT INTO "ya-payments" (session_id, amount_kurus, status, provider_ref, idempotency_key,
 		   request_hash, requested_at, paid_at, confirmed_at)
 		 VALUES ($1, 1000, 'succeeded', $2, $3, decode(repeat('ab', 32), 'hex'), $4, $5, $6)`,
 		sessID, benzersiz("prov"), benzersiz("idem"),
@@ -607,7 +607,7 @@ func TestOpsReportsDaily(t *testing.T) {
 		t.Fatalf("odeme eklenemedi: %v", err)
 	}
 	if _, err := env.pool.Exec(ctx,
-		`INSERT INTO debts (session_id, lot_id, plate, amount_kurus, paid_kurus, status)
+		`INSERT INTO "ya-debts" (session_id, lot_id, plate, amount_kurus, paid_kurus, status)
 		 VALUES ($1, $2, '34RPT001', 2000, 500, 'open')`,
 		sessID, env.lotID,
 	); err != nil {
@@ -616,7 +616,7 @@ func TestOpsReportsDaily(t *testing.T) {
 
 	incelemeOlay := opsOlay(t, env.pool, env.lotID, session.Entry, "34RPT002", gunBas.Add(35*time.Hour), session.OutcomeReview)
 	if _, err := env.pool.Exec(ctx,
-		`INSERT INTO review_items (event_id, lot_id, reason, read_plate, created_at)
+		`INSERT INTO "ya-review_items" (event_id, lot_id, reason, read_plate, created_at)
 		 VALUES ($1, $2, 'ambiguous', '34RPT002', $3)`,
 		incelemeOlay, env.lotID, gunBas.Add(12*time.Hour),
 	); err != nil {
@@ -624,7 +624,7 @@ func TestOpsReportsDaily(t *testing.T) {
 	}
 	kapaliOlay := opsOlay(t, env.pool, env.lotID, session.Entry, "34RPT003", gunBas.Add(36*time.Hour), session.OutcomeReview)
 	if _, err := env.pool.Exec(ctx,
-		`INSERT INTO review_items (event_id, lot_id, reason, read_plate, status, created_at, resolved_at)
+		`INSERT INTO "ya-review_items" (event_id, lot_id, reason, read_plate, status, created_at, resolved_at)
 		 VALUES ($1, $2, 'ambiguous', '34RPT003', 'resolved', $3, $4)`,
 		kapaliOlay, env.lotID, gunBas.Add(12*time.Hour), gunBas.Add(13*time.Hour),
 	); err != nil {
@@ -927,7 +927,7 @@ func TestOpsReviewsUclari(t *testing.T) {
 	var status string
 	var resolvedAt *time.Time
 	if err := env.pool.QueryRow(ctx,
-		`SELECT status, resolved_at FROM review_items WHERE id = $1`, inceleme1,
+		`SELECT status, resolved_at FROM "ya-review_items" WHERE id = $1`, inceleme1,
 	).Scan(&status, &resolvedAt); err != nil {
 		t.Fatalf("inceleme okunamadi: %v", err)
 	}
@@ -947,7 +947,7 @@ func TestOpsReviewsUclari(t *testing.T) {
 	}
 	var bagli *int64
 	if err := env.pool.QueryRow(ctx,
-		`SELECT session_id FROM plate_events WHERE id = $1`, olay2).Scan(&bagli); err != nil {
+		`SELECT session_id FROM "ya-plate_events" WHERE id = $1`, olay2).Scan(&bagli); err != nil {
 		t.Fatalf("olay okunamadi: %v", err)
 	}
 	if bagli == nil || *bagli != oturumID {
