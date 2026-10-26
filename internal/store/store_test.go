@@ -14,11 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 
 	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/domain/tariff"
+	"parkakil/internal/migrate"
 	"parkakil/internal/store"
 	"parkakil/internal/testdb"
 	"parkakil/migrations"
@@ -142,13 +142,7 @@ func TestMigrationDownUp(t *testing.T) {
 	}
 	defer db.Close()
 
-	goose.SetBaseFS(migrations.FS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("postgres"); err != nil {
-		t.Fatalf("goose ayari: %v", err)
-	}
-
-	if err := goose.DownTo(db, ".", 1); err != nil {
+	if err := migrate.DownTo(context.Background(), db, migrations.FS, 1); err != nil {
 		t.Fatalf("00002 down basarisiz: %v", err)
 	}
 
@@ -160,7 +154,7 @@ func TestMigrationDownUp(t *testing.T) {
 		t.Fatal("down sonrasi sessions tablosu hala var")
 	}
 
-	if err := goose.Up(db, "."); err != nil {
+	if _, err := migrate.Up(context.Background(), db, migrations.FS); err != nil {
 		t.Fatalf("00002 up basarisiz: %v", err)
 	}
 

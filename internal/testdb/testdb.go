@@ -16,8 +16,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pressly/goose/v3"
 
+	"parkakil/internal/migrate"
 	"parkakil/internal/store"
 	"parkakil/migrations"
 )
@@ -41,7 +41,7 @@ func Open(t testing.TB) *pgxpool.Pool {
 	}
 
 	migrateOnce.Do(func() {
-		migrateErr = migrate(url)
+		migrateErr = runMigrations(url)
 	})
 	if migrateErr != nil {
 		t.Fatalf("migrasyon uygulanamadi: %v", migrateErr)
@@ -74,19 +74,14 @@ func NewLot(t testing.TB, pool *pgxpool.Pool, capacity int) int64 {
 	return id
 }
 
-func migrate(url string) error {
+func runMigrations(url string) error {
 	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	goose.SetBaseFS(migrations.FS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("postgres"); err != nil {
-		return err
-	}
-	if err := goose.Up(db, "."); err != nil {
+	if _, err := migrate.Up(context.Background(), db, migrations.FS); err != nil {
 		return err
 	}
 	return nil

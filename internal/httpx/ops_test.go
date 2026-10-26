@@ -970,3 +970,59 @@ func TestOpsReviewsUclari(t *testing.T) {
 		t.Fatalf("bozuk durum filtresi = %d, beklenen 400", rec.Code)
 	}
 }
+
+func TestOpsReservationIdempotency(t *testing.T) {
+	env := opsHazirla(t, 5)
+	_, sofor := opsToken(t, env.h, env.pool, auth.RoleDriver, "34IDM123")
+	_, mudur := opsToken(t, env.h, env.pool, auth.RoleManager, "")
+
+	gonder := func(token, anahtar string, body map[string]any) *httptest.ResponseRecorder {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("govde hazirlanamadi: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/reservations", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		if anahtar != "" {
+			req.Header.Set("Idempotency-Key", anahtar)
+		}
+		rec := httptest.NewRecorder()
+		env.h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	govde := map[string]any{"lot_id": env.lotID, "plate": "34 IDM 123"}
+	ilk := gonder(sofor, "http-rez-idem-1", govde)
+	if ilk.Code != http.StatusCreated {
+		t.Fatalf("ilk rezervasyon durum = %d; govde: %s", ilk.Code, ilk.Body.String())
+	}
+	ilkGovde := decodeJSON(t, ilk)
+	if ilkGovde["replayed"] != false {
+		t.Fatalf("ilk replayed = %v, beklenen false", ilkGovde["replayed"])
+	}
+	ilkID := int64(ilkGovde["id"].(float64))
+
+	tekrar := gonder(sofor, "http-rez-idem-1", govde)
+	if tekrar.Code != http.StatusOK {
+		t.Fatalf("tekrar rezervasyon durum = %d; govde: %s", tekrar.Code, tekrar.Body.String())
+	}
+	tekrarGovde := decodeJSON(t, tekrar)
+	if tekrarGovde["replayed"] != true {
+		t.Fatalf("tekrar replayed = %v, beklenen true", tekrarGovde["replayed"])
+	}
+	if int64(tekrarGovde["id"].(float64)) != ilkID {
+		t.Fatalf("tekrar kimligi = %v, beklenen %d", tekrarGovde["id"], ilkID)
+	}
+
+	farkli := gonder(mudur, "http-rez-idem-1", map[string]any{"lot_id": env.lotID, "plate": "34IDM999"})
+	if farkli.Code != http.StatusConflict {
+		t.Fatalf("farkli govde durum = %d; govde: %s", farkli.Code, farkli.Body.String())
+	}
+	assertErrorBody(t, farkli, "idempotency_conflict")
+
+	uzun := gonder(sofor, strings.Repeat("a", 256), govde)
+	if uzun.Code != http.StatusBadRequest {
+		t.Fatalf("uzun anahtar durum = %d, beklenen 400", uzun.Code)
+	}
+}

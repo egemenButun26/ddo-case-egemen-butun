@@ -25,7 +25,7 @@ const (
 	defaultSeed         = int64(20261026)
 	defaultEventsPerDay = 20000
 	defaultSpeed        = 60.0
-	defaultStart        = "2026-10-27T06:00:00+03:00"
+	defaultStart        = "2026-10-26T00:00:00+03:00"
 	alivePath           = "/tmp/simulator-alive"
 	aliveFresh          = 60 * time.Second
 	simulationDuration  = 24 * time.Hour
@@ -177,8 +177,6 @@ func runSender(getenv func(string) string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// Kiosk odemeleri ve saglayici gecikmeleri T-4 HTTP uclari geldikten
-	// sonra eklenecek; bu adimda uretilmez.
 	cfg := simulator.Config{
 		Seed:         ayar.seed,
 		Lots:         lots,
@@ -200,6 +198,7 @@ func runSender(getenv func(string) string, stdout, stderr io.Writer) int {
 	go logSummary(ctx, logger, counter)
 
 	gonderici := newSender(ayar.apiURL, ayar.cameraKey, logger, counter)
+	go runKioskPayments(ctx, logger, ayar.apiURL, ayar.cameraKey, ayar.databaseURL)
 	logger.Info("simulator basladi",
 		"olay", len(events),
 		"otopark", len(lots),

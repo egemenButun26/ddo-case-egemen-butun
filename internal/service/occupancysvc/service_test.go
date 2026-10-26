@@ -2,6 +2,7 @@ package occupancysvc_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -409,5 +410,50 @@ func TestRezervasyonGelinceArrived(t *testing.T) {
 	}
 	if snap.Occupied != 1 || snap.ActiveReservations != 0 || snap.Available != 1 {
 		t.Fatalf("giris sonrasi doluluk = %+v", snap)
+	}
+}
+
+func TestRezervasyonIdempotency(t *testing.T) {
+	pool := testdb.Open(t)
+	svc, err := occupancysvc.New(pool)
+	if err != nil {
+		t.Fatalf("servis olusturulamadi: %v", err)
+	}
+	lotID := testdb.NewLot(t, pool, 5)
+	at := time.Date(2026, 10, 27, 10, 0, 0, 0, time.UTC)
+	hash := sha256.Sum256([]byte("ayni-govde"))
+
+	ilk, replayed, err := svc.ReserveWithOptions(context.Background(), lotID, "34IDM001", at,
+		occupancysvc.ReserveOptions{IdempotencyKey: "rez-idem-1", RequestHash: hash})
+	if err != nil || replayed {
+		t.Fatalf("ilk rezervasyon = %v, replayed=%v", err, replayed)
+	}
+
+	tekrar, replayed, err := svc.ReserveWithOptions(context.Background(), lotID, "34IDM001", at.Add(time.Minute),
+		occupancysvc.ReserveOptions{IdempotencyKey: "rez-idem-1", RequestHash: hash})
+	if err != nil || !replayed {
+		t.Fatalf("tekrar rezervasyon = %v, replayed=%v", err, replayed)
+	}
+	if tekrar.ID != ilk.ID {
+		t.Fatalf("tekrar kimligi = %d, beklenen %d", tekrar.ID, ilk.ID)
+	}
+
+	farkli := sha256.Sum256([]byte("farkli-govde"))
+	if _, _, err := svc.ReserveWithOptions(context.Background(), lotID, "34IDM002", at,
+		occupancysvc.ReserveOptions{IdempotencyKey: "rez-idem-1", RequestHash: farkli}); !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("farkli govde hata = %v, beklenen ErrIdempotencyConflict", err)
+	}
+
+	if _, _, err := svc.ReserveWithOptions(context.Background(), lotID, "34IDM002", at,
+		occupancysvc.ReserveOptions{IdempotencyKey: "rez-idem-2", RequestHash: farkli}); err != nil {
+		t.Fatalf("ikinci anahtar rezervasyonu = %v", err)
+	}
+
+	aktif, err := store.CountActiveReservations(context.Background(), pool, lotID)
+	if err != nil {
+		t.Fatalf("aktif rezervasyon sayisi = %v", err)
+	}
+	if aktif != 2 {
+		t.Fatalf("aktif rezervasyon = %d, beklenen 2", aktif)
 	}
 }

@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 	"time"
@@ -203,5 +204,37 @@ func TestLotCounterSchema(t *testing.T) {
 	}
 	if n, err := store.GetCounter(ctx, pool, olmayan); err != nil || n != 4 {
 		t.Fatalf("yazilan sayac = %d, hata %v; beklenen 4", n, err)
+	}
+}
+
+func TestReservationIdempotencyStore(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	lotID := testdb.NewLot(t, pool, 10)
+	at := time.Date(2026, 10, 27, 10, 0, 0, 0, time.UTC)
+	hash := sha256.Sum256([]byte("rezervasyon-govdesi"))
+
+	ilk, err := store.InsertReservationIdempotent(ctx, pool, lotID, "34IDM123", at,
+		at.Add(30*time.Minute), "store-rez-idem-1", hash)
+	if err != nil {
+		t.Fatalf("idempotent rezervasyon eklenemedi: %v", err)
+	}
+
+	okunan, okunanHash, err := store.GetReservationByIdempotencyKey(ctx, pool, "store-rez-idem-1")
+	if err != nil {
+		t.Fatalf("anahtarla rezervasyon okunamadi: %v", err)
+	}
+	if okunan.ID != ilk.ID || okunanHash != hash {
+		t.Fatalf("okunan = %+v hash=%x, beklenen id=%d hash=%x", okunan, okunanHash, ilk.ID, hash)
+	}
+
+	if _, err := store.InsertReservationIdempotent(ctx, pool, lotID, "34IDM456", at,
+		at.Add(30*time.Minute), "store-rez-idem-1", sha256.Sum256([]byte("baska"))); !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("ayni anahtar farkli istek hata = %v, beklenen ErrIdempotencyConflict", err)
+	}
+
+	if _, err := store.InsertReservationIdempotent(ctx, pool, lotID, "34IDM789", at,
+		at.Add(30*time.Minute), string(make([]byte, 256)), hash); !errors.Is(err, store.ErrIdempotencyConflict) {
+		t.Fatalf("uzun anahtar hata = %v, beklenen ErrIdempotencyConflict", err)
 	}
 }

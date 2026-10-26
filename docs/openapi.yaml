@@ -543,6 +543,7 @@ components:
         - status
         - reserved_at
         - expires_at
+        - replayed
       properties:
         id:
           type: integer
@@ -565,6 +566,9 @@ components:
         expires_at:
           type: string
           format: date-time
+        replayed:
+          type: boolean
+          description: Aynı idempotency anahtarıyla tekrar istendi mi?
     RecountResponse:
       type: object
       required:
@@ -2055,7 +2059,8 @@ paths:
       summary: Rezervasyon oluştur
       description: |
         Sürücü yalnız kendi plakası için rezervasyon açabilir. Rezervasyon penceresi
-        30 dakikadır.
+        30 dakikadır. `Idempotency-Key` verilirse aynı anahtar ve aynı gövde 200 ve
+        aynı kaydı (`replayed: true`), farklı gövde 409 `idempotency_conflict` döndürür.
       tags:
         - Oturum/Doluluk
       security:
@@ -2064,6 +2069,13 @@ paths:
         - driver
         - manager
         - admin
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 255
       requestBody:
         required: true
         content:
@@ -2071,6 +2083,12 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateReservationRequest'
       responses:
+        '200':
+          description: Aynı `Idempotency-Key` ve aynı gövdeyle tekrar istendi; aynı rezervasyon döndü.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationView'
         '201':
           description: Rezervasyon oluşturuldu.
           content:
@@ -2102,7 +2120,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Kapasite yok, rezervasyon var ya da açık oturum var (`no_capacity`, `reservation_exists`, `open_session_exists`).
+          description: Kapasite yok, rezervasyon var, açık oturum var ya da idempotency anahtarı farklı gövdeyle kullanılmış (`no_capacity`, `reservation_exists`, `open_session_exists`, `idempotency_conflict`).
           content:
             application/json:
               schema:

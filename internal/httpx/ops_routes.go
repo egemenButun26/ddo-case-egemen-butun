@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	_ "time/tzdata"
 
@@ -133,6 +134,7 @@ type opsReservationView struct {
 	Status     occupancy.Status `json:"status"`
 	ReservedAt time.Time        `json:"reserved_at"`
 	ExpiresAt  time.Time        `json:"expires_at"`
+	Replayed   bool             `json:"replayed"`
 }
 
 func viewReservation(r occupancy.Reservation) opsReservationView {
@@ -157,6 +159,12 @@ func opsCreateReservationHandler(deps Deps) http.HandlerFunc {
 		if !ok {
 			return
 		}
+		anahtar := strings.TrimSpace(r.Header.Get(idempotencyHeader))
+		if len(anahtar) > 255 {
+			WriteError(w, http.StatusBadRequest, "invalid_idempotency_key", "invalid idempotency key")
+			return
+		}
+
 		var req opsReservationRequest
 		if !decodeOpsBody(w, r, &req) {
 			return
@@ -181,7 +189,11 @@ func opsCreateReservationHandler(deps Deps) http.HandlerFunc {
 				return
 			}
 		}
-		reservation, err := svc.Reserve(r.Context(), req.LotID, p, time.Now())
+		opts := occupancysvc.ReserveOptions{IdempotencyKey: anahtar}
+		if anahtar != "" {
+			opts.RequestHash = canonicalHash(req)
+		}
+		reservation, replayed, err := svc.ReserveWithOptions(r.Context(), req.LotID, p, time.Now(), opts)
 		if err != nil {
 			switch {
 			case errors.Is(err, occupancysvc.ErrInvalidPlate):
@@ -192,6 +204,8 @@ func opsCreateReservationHandler(deps Deps) http.HandlerFunc {
 				WriteError(w, http.StatusConflict, "reservation_exists", "reservation already exists")
 			case errors.Is(err, occupancysvc.ErrOpenSessionExists):
 				WriteError(w, http.StatusConflict, "open_session_exists", "open session exists")
+			case errors.Is(err, store.ErrIdempotencyConflict):
+				WriteError(w, http.StatusConflict, "idempotency_conflict", "idempotency key reused with a different request")
 			case errors.Is(err, store.ErrLotNotFound):
 				WriteError(w, http.StatusNotFound, "lot_not_found", "lot not found")
 			default:
@@ -199,7 +213,13 @@ func opsCreateReservationHandler(deps Deps) http.HandlerFunc {
 			}
 			return
 		}
-		WriteJSON(w, http.StatusCreated, viewReservation(reservation))
+		view := viewReservation(reservation)
+		view.Replayed = replayed
+		durum := http.StatusCreated
+		if replayed {
+			durum = http.StatusOK
+		}
+		WriteJSON(w, durum, view)
 	}
 }
 

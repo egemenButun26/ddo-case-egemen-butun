@@ -8,9 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pressly/goose/v3"
-
 	"parkakil/internal/domain/billing"
+	"parkakil/internal/migrate"
 	"parkakil/internal/store"
 	"parkakil/internal/testdb"
 	"parkakil/migrations"
@@ -210,23 +209,15 @@ func TestMigrationAbonelikTekrar(t *testing.T) {
 	db := openSQL(t)
 	latest := latestMigrationVersion(t)
 
-	goose.SetBaseFS(migrations.FS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("postgres"); err != nil {
-		t.Fatalf("goose ayari: %v", err)
-	}
-	if err := goose.Up(db, "."); err != nil {
-		t.Fatalf("goose.Up basarisiz: %v", err)
-	}
-	version, err := goose.GetDBVersion(db)
+	version, err := migrate.Up(context.Background(), db, migrations.FS)
 	if err != nil {
-		t.Fatalf("surum okunamadi: %v", err)
+		t.Fatalf("goose.Up basarisiz: %v", err)
 	}
 	if version != latest {
 		t.Fatalf("surum = %d, beklenen %d", version, latest)
 	}
 
-	if err := goose.DownTo(db, ".", 6); err != nil {
+	if err := migrate.DownTo(context.Background(), db, migrations.FS, 6); err != nil {
 		t.Fatalf("goose.DownTo(6) basarisiz: %v", err)
 	}
 	for _, ad := range []string{"ya-plans", "ya-subscriptions", "ya-invoices", "ya-billing_runs", "ya-provider_settlements", "ya-reconciliation_reports"} {
@@ -235,7 +226,7 @@ func TestMigrationAbonelikTekrar(t *testing.T) {
 		}
 	}
 
-	if err := goose.Up(db, "."); err != nil {
+	if _, err := migrate.Up(context.Background(), db, migrations.FS); err != nil {
 		t.Fatalf("yeniden goose.Up basarisiz: %v", err)
 	}
 	for _, ad := range []string{"ya-plans", "ya-subscriptions", "ya-invoices", "ya-billing_runs", "ya-provider_settlements", "ya-reconciliation_reports"} {
@@ -246,7 +237,7 @@ func TestMigrationAbonelikTekrar(t *testing.T) {
 	if !dizinVarMi(t, db, "subscriptions_one_active_per_plate_lot") {
 		t.Fatal("up sonrasi subscriptions_one_active_per_plate_lot yok")
 	}
-	version, err = goose.GetDBVersion(db)
+	version, err = migrate.GetDBVersion(context.Background(), db, migrations.FS)
 	if err != nil {
 		t.Fatalf("surum okunamadi: %v", err)
 	}

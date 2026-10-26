@@ -13,9 +13,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pressly/goose/v3"
 
 	"parkakil/internal/domain/session"
+	"parkakil/internal/migrate"
 	"parkakil/internal/store"
 	"parkakil/internal/testdb"
 	"parkakil/migrations"
@@ -786,24 +786,15 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	}
 	defer db.Close()
 
-	goose.SetBaseFS(migrations.FS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("postgres"); err != nil {
-		t.Fatalf("goose ayari: %v", err)
-	}
-
-	if err := goose.Up(db, "."); err != nil {
-		t.Fatalf("ikinci goose.Up basarisiz: %v", err)
-	}
-	version, err := goose.GetDBVersion(db)
+	version, err := migrate.Up(context.Background(), db, migrations.FS)
 	if err != nil {
-		t.Fatalf("surum okunamadi: %v", err)
+		t.Fatalf("ikinci goose.Up basarisiz: %v", err)
 	}
 	if version != latest {
 		t.Fatalf("surum = %d, beklenen %d", version, latest)
 	}
 
-	if err := goose.DownTo(db, ".", 3); err != nil {
+	if err := migrate.DownTo(context.Background(), db, migrations.FS, 3); err != nil {
 		t.Fatalf("goose.DownTo(3) basarisiz: %v", err)
 	}
 	for _, ad := range []string{"ya-payments", "ya-refunds", "ya-debts"} {
@@ -815,7 +806,7 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 		t.Fatal("down sonrasi sessions_id_lot_plate_uniq hala var")
 	}
 
-	if err := goose.Up(db, "."); err != nil {
+	if _, err := migrate.Up(context.Background(), db, migrations.FS); err != nil {
 		t.Fatalf("yeniden goose.Up basarisiz: %v", err)
 	}
 	for _, ad := range []string{"ya-payments", "ya-refunds", "ya-debts"} {
@@ -829,7 +820,7 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if !dizinVarMi(t, db, "payments_one_pending_per_session") || !dizinVarMi(t, db, "debts_open_plate_idx") {
 		t.Fatal("up sonrasi yeni dizinlerden biri yok")
 	}
-	version, err = goose.GetDBVersion(db)
+	version, err = migrate.GetDBVersion(context.Background(), db, migrations.FS)
 	if err != nil {
 		t.Fatalf("surum okunamadi: %v", err)
 	}

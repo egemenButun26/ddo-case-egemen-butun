@@ -4,7 +4,7 @@ GO_IMAGE := golang:1.23-alpine
 GO_MOD_CACHE := parkakil-gomod
 GO_DOCKER := docker run --rm -v "$(CURDIR):/src" -v $(GO_MOD_CACHE):/go/pkg/mod -w /src -e GOFLAGS=-buildvcs=false $(GO_IMAGE) sh -c
 
-.PHONY: up down logs test smoke load chaos
+.PHONY: up down logs test smoke load chaos verify reset-demo
 
 up:
 	docker compose up -d --build --wait
@@ -26,3 +26,10 @@ load:
 
 chaos:
 	sh scripts/chaos/postgres-kesintisi.sh
+
+verify:
+	node scripts/verify/verify.js
+
+reset-demo:
+	docker compose down -v --remove-orphans
+	docker compose up -d --build --wait

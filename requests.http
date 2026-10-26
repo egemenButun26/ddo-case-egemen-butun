@@ -1,0 +1,237 @@
+# ParkAkıl — VS Code REST Client koleksiyonu
+# Kullanım: .env'den CAMERA_API_KEY ve SEED_DEMO_PASSWORD değerlerini alın.
+# Login isteğinden dönen token'ı @token değişkenine yapıştırın.
+#
+# @api = http://localhost:8080
+# @web = http://localhost:3000
+# @cameraKey = demo-kamera-anahtari-degistir-0000000000
+# @password = demo-parola-degistir
+# @token = BURAYA_TOKEN
+# @lotId = 1
+# @plate = 34ABC123
+
+### Sağlık
+GET {{api}}/health
+
+### Standart sağlık dışı hazır olma ucu
+GET {{api}}/_hz/45a6
+
+### Prometheus metrikleri (METRICS_TOKEN doluysa Bearer ekleyin)
+GET {{api}}/metrics
+
+### OpenAPI
+GET {{api}}/openapi.yaml
+
+### Web arayüzü
+GET {{web}}/
+
+### Giriş — sistem yöneticisi
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{"email":"seed.ardic@ddo-case.invalid","password":"{{password}}"}
+
+### Giriş — sürücü
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{"email":"surucu@parkakil.test","password":"{{password}}"}
+
+### Giriş — görevli
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{"email":"gorevli@parkakil.test","password":"{{password}}"}
+
+### Giriş — muhasebe
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{"email":"muhasebe@parkakil.test","password":"{{password}}"}
+
+### Giriş — müdür
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{"email":"mudur@parkakil.test","password":"{{password}}"}
+
+### Yanlış parola (401 beklenir)
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{"email":"surucu@parkakil.test","password":"yanlis"}
+
+### Oturum bilgisi
+GET {{api}}/auth/me
+Authorization: Bearer {{token}}
+
+### Çıkış
+POST {{api}}/auth/logout
+Authorization: Bearer {{token}}
+
+### Otoparklar
+GET {{api}}/lots
+Authorization: Bearer {{token}}
+
+### Doluluk panosu (görevli/müdür/yönetici)
+GET {{api}}/occupancy
+Authorization: Bearer {{token}}
+
+### Son olaylar (görevli/müdür/yönetici)
+GET {{api}}/events/recent?limit=20
+Authorization: Bearer {{token}}
+
+### İnceleme kuyruğu
+GET {{api}}/reviews?status=open&limit=20
+Authorization: Bearer {{token}}
+
+### İncelemeyi çöz (görevli/yönetici)
+POST {{api}}/reviews/1/resolve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"action":"dismiss"}
+
+### Kamera olayı — giriş
+POST {{api}}/camera-events
+X-Camera-Key: {{cameraKey}}
+Content-Type: application/json
+
+{"lot_id":{{lotId}},"camera_id":"el-kamerasi","camera_event_id":"el-giris-001","direction":"entry","plate_raw":"34 ABC 123","captured_at":"2026-10-26T10:00:00+03:00"}
+
+### Kamera olayı — çıkış
+POST {{api}}/camera-events
+X-Camera-Key: {{cameraKey}}
+Content-Type: application/json
+
+{"lot_id":{{lotId}},"camera_id":"el-kamerasi","camera_event_id":"el-cikis-001","direction":"exit","plate_raw":"34ABC123","captured_at":"2026-10-26T12:00:00+03:00"}
+
+### Kiosk teklifi
+GET {{api}}/kiosk/quote?lot_id={{lotId}}&plate={{plate}}
+X-Camera-Key: {{cameraKey}}
+
+### Kiosk ödemesi (Idempotency-Key zorunlu)
+POST {{api}}/kiosk/payments
+X-Camera-Key: {{cameraKey}}
+Idempotency-Key: elle-odeme-001
+Content-Type: application/json
+
+{"session_id":1,"amount_kurus":3000}
+
+### Kapı kararı
+GET {{api}}/gate/decision?lot_id={{lotId}}&plate={{plate}}
+X-Camera-Key: {{cameraKey}}
+
+### Ödeme listesi (muhasebe/müdür/yönetici)
+GET {{api}}/payments?limit=20
+Authorization: Bearer {{token}}
+
+### İade (muhasebe/yönetici; Idempotency-Key zorunlu)
+POST {{api}}/refunds
+Authorization: Bearer {{token}}
+Idempotency-Key: elle-iade-001
+Content-Type: application/json
+
+{"payment_id":1,"amount_kurus":100,"reason":"manual"}
+
+### Borç sorgusu
+GET {{api}}/debts?plate={{plate}}
+Authorization: Bearer {{token}}
+
+### Kara liste
+GET {{api}}/blacklist?limit=20
+Authorization: Bearer {{token}}
+
+### Kara listeye ekle (müdür/yönetici)
+POST {{api}}/blacklist
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"plate":"34ABC123","reason":"elle test"}
+
+### Kara listeden çıkar (müdür/yönetici)
+DELETE {{api}}/blacklist/1
+Authorization: Bearer {{token}}
+
+### Rezervasyon (Idempotency-Key destekli)
+POST {{api}}/reservations
+Authorization: Bearer {{token}}
+Idempotency-Key: elle-rezervasyon-001
+Content-Type: application/json
+
+{"lot_id":{{lotId}},"plate":"34ABC123"}
+
+### Rezervasyon iptali
+DELETE {{api}}/reservations/1
+Authorization: Bearer {{token}}
+
+### Günlük rapor (muhasebe/müdür/yönetici)
+GET {{api}}/reports/daily?day=2026-10-26&lot_id={{lotId}}
+Authorization: Bearer {{token}}
+
+### Planlar
+GET {{api}}/plans
+Authorization: Bearer {{token}}
+
+### Abonelik oluştur
+POST {{api}}/subscriptions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"plate":"34ABC123","plan_code":"KADIKOY-AYLIK"}
+
+### Abonelikler
+GET {{api}}/subscriptions?limit=20
+Authorization: Bearer {{token}}
+
+### Abonelik iptali (prorated iade)
+POST {{api}}/subscriptions/1/cancel
+Authorization: Bearer {{token}}
+
+### Plan değişikliği (prorated)
+POST {{api}}/subscriptions/1/change-plan
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"plan_code":"BESIKTAS-AYLIK"}
+
+### Faturalar
+GET {{api}}/invoices?limit=20
+Authorization: Bearer {{token}}
+
+### Dönem sonu faturalama (idempotent)
+POST {{api}}/billing/period-end
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"period_start":"2026-11-01"}
+
+### Başarısız ödeme denemesi (dunning)
+POST {{api}}/invoices/1/payment-attempts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"success":false}
+
+### Sağlayıcı raporu içe aktar + mutabakat
+POST {{api}}/reconciliation/2026-10-26/provider-report
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+[{"provider_ref":"prv-elle-001","amount_kurus":3000}]
+
+### Mutabakat raporu
+GET {{api}}/reconciliation/2026-10-26
+Authorization: Bearer {{token}}
+
+### Kullanıcı listesi (yalnız yönetici)
+GET {{api}}/admin/users
+Authorization: Bearer {{token}}
+
+### Doluluk yeniden hesaplama (yalnız yönetici)
+POST {{api}}/admin/occupancy/{{lotId}}/recount
+Authorization: Bearer {{token}}
+
+### Sayaç kaymaları (müdür/yönetici)
+GET {{api}}/admin/counter-drifts?limit=20
+Authorization: Bearer {{token}}

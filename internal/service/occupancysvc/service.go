@@ -57,59 +57,106 @@ func New(pool *pgxpool.Pool) (*Service, error) {
 	return &Service{pool: pool}, nil
 }
 
+// ReserveOptions, rezervasyon isteginin idempotency bilgisini tasir.
+type ReserveOptions struct {
+	IdempotencyKey string
+	RequestHash    [32]byte
+}
+
 // Reserve, plaka icin 30 dakikalik aktif rezervasyon olusturur.
 func (s *Service) Reserve(ctx context.Context, lotID int64, plateRaw string, now time.Time) (occupancy.Reservation, error) {
+	r, _, err := s.ReserveWithOptions(ctx, lotID, plateRaw, now, ReserveOptions{})
+	return r, err
+}
+
+// ReserveWithOptions, idempotency anahtari verildiginde ayni istegin tekrarini
+// ayni rezervasyonla yanitlar. Ikinci donus degeri istegin tekrar olup
+// olmadigini soyler.
+func (s *Service) ReserveWithOptions(ctx context.Context, lotID int64, plateRaw string, now time.Time,
+	opts ReserveOptions,
+) (occupancy.Reservation, bool, error) {
 	p := plate.Normalize(plateRaw)
 	if !plate.ValidTR(p) {
-		return occupancy.Reservation{}, ErrInvalidPlate
+		return occupancy.Reservation{}, false, ErrInvalidPlate
 	}
 	now = now.Truncate(time.Microsecond)
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return occupancy.Reservation{}, err
+		return occupancy.Reservation{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if opts.IdempotencyKey != "" {
+		onceki, hash, err := store.GetReservationByIdempotencyKey(ctx, tx, opts.IdempotencyKey)
+		switch {
+		case err == nil:
+			if hash != opts.RequestHash {
+				return occupancy.Reservation{}, false, store.ErrIdempotencyConflict
+			}
+			return onceki, true, nil
+		case errors.Is(err, store.ErrNotFound):
+			// Ilk istek; asagida olusturulacak.
+		default:
+			return occupancy.Reservation{}, false, err
+		}
+	}
+
 	capacity, err := store.LockLot(ctx, tx, lotID)
 	if err != nil {
-		return occupancy.Reservation{}, err
+		return occupancy.Reservation{}, false, err
 	}
 
 	acik, err := store.CountOpenSessions(ctx, tx, lotID, p)
 	if err != nil {
-		return occupancy.Reservation{}, err
+		return occupancy.Reservation{}, false, err
 	}
 	if acik > 0 {
-		return occupancy.Reservation{}, ErrOpenSessionExists
+		return occupancy.Reservation{}, false, ErrOpenSessionExists
 	}
 
 	aktif, err := store.ListActiveReservations(ctx, tx, lotID)
 	if err != nil {
-		return occupancy.Reservation{}, err
+		return occupancy.Reservation{}, false, err
 	}
 	for _, r := range aktif {
 		if r.Plate == p {
-			return occupancy.Reservation{}, ErrReservationExists
+			return occupancy.Reservation{}, false, ErrReservationExists
 		}
 	}
 
 	acikToplam, err := store.CountOpenSessionsForLot(ctx, tx, lotID)
 	if err != nil {
-		return occupancy.Reservation{}, err
+		return occupancy.Reservation{}, false, err
 	}
 	if acikToplam+len(aktif) >= capacity {
-		return occupancy.Reservation{}, ErrNoCapacity
+		return occupancy.Reservation{}, false, ErrNoCapacity
 	}
 
-	r, err := store.InsertReservation(ctx, tx, lotID, p, now, occupancy.ExpiresAt(now))
+	var r occupancy.Reservation
+	if opts.IdempotencyKey != "" {
+		r, err = store.InsertReservationIdempotent(ctx, tx, lotID, p, now, occupancy.ExpiresAt(now),
+			opts.IdempotencyKey, opts.RequestHash)
+	} else {
+		r, err = store.InsertReservation(ctx, tx, lotID, p, now, occupancy.ExpiresAt(now))
+	}
 	if err != nil {
-		return occupancy.Reservation{}, err
+		if errors.Is(err, store.ErrIdempotencyConflict) && opts.IdempotencyKey != "" {
+			// Ayni anahtar eszamanli baska bir istekte kullanildi. Kilidi
+			// birakip kazanan istegin sonucunu oku.
+			_ = tx.Rollback(ctx)
+			onceki, hash, getErr := store.GetReservationByIdempotencyKey(ctx, s.pool, opts.IdempotencyKey)
+			if getErr == nil && hash == opts.RequestHash {
+				return onceki, true, nil
+			}
+			return occupancy.Reservation{}, false, store.ErrIdempotencyConflict
+		}
+		return occupancy.Reservation{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return occupancy.Reservation{}, err
+		return occupancy.Reservation{}, false, err
 	}
-	return r, nil
+	return r, false, nil
 }
 
 // Cancel, aktif rezervasyonu iptal eder.

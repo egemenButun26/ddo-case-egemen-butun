@@ -8,8 +8,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 
+	"parkakil/internal/migrate"
 	"parkakil/migrations"
 )
 
@@ -34,13 +34,6 @@ func run() int {
 	}
 	defer db.Close()
 
-	goose.SetBaseFS(migrations.FS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("postgres"); err != nil {
-		logger.Error("migrasyon: goose ayari basarisiz", "hata", err)
-		return 1
-	}
-
 	const attempts = 30
 	for i := 1; i <= attempts; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -48,13 +41,11 @@ func run() int {
 		cancel()
 
 		if pingErr == nil {
-			if err := goose.Up(db, "."); err != nil {
-				logger.Error("migrasyon basarisiz", "hata", err)
-				return 1
-			}
-			version, err := goose.GetDBVersion(db)
+			migCtx, migCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			version, err := migrate.Up(migCtx, db, migrations.FS)
+			migCancel()
 			if err != nil {
-				logger.Error("migrasyon surumu okunamadi", "hata", err)
+				logger.Error("migrasyon basarisiz", "hata", err)
 				return 1
 			}
 			logger.Info("migrasyon tamam", "surum", version)
