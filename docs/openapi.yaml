@@ -1309,6 +1309,26 @@ components:
         report:
           $ref: '#/components/schemas/ReconciliationReport'
 paths:
+  /_hz/45a6:
+    get:
+      operationId: getHz
+      summary: Ek sağlık ucu
+      description: Standart sağlık ucuna ek olarak her zaman 200 döner. Kimlik doğrulaması istemez.
+      tags:
+        - Sağlık
+      security: []
+      x-roles: []
+      responses:
+        '200':
+          description: Servis ayakta.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
   /health:
     get:
       operationId: getHealth
