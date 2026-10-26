@@ -61,7 +61,8 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := store.LockLot(ctx, tx, ev.LotID); err != nil {
+	capacity, err := store.LockLot(ctx, tx, ev.LotID)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -101,7 +102,7 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 	var res Result
 	switch ev.Direction {
 	case session.Entry:
-		res, err = s.handleEntry(ctx, tx, ev)
+		res, err = s.handleEntry(ctx, tx, ev, capacity)
 	case session.Exit:
 		res, err = s.handleExit(ctx, tx, ev)
 	default:
@@ -117,16 +118,16 @@ func (s *Service) HandleEvent(ctx context.Context, ev session.Event) (Result, er
 	return res, nil
 }
 
-func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event) (Result, error) {
+func (s *Service) handleEntry(ctx context.Context, tx pgx.Tx, ev session.Event, capacity int) (Result, error) {
 	open, err := store.ListOpenSessions(ctx, tx, ev.LotID)
 	if err != nil {
 		return Result{}, err
 	}
-	closed, err := store.ListClosedCovering(ctx, tx, ev.LotID, ev.CapturedAt, s.cfg.DuplicateWindow)
+	closed, err := store.ListClosedEndingAfter(ctx, tx, ev.LotID, ev.CapturedAt)
 	if err != nil {
 		return Result{}, err
 	}
-	d, err := session.DecideEntry(s.cfg, ev, open, closed)
+	d, err := session.DecideEntry(s.cfg, ev, capacity, open, closed)
 	if err != nil {
 		return Result{}, err
 	}
