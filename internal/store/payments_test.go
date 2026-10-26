@@ -218,7 +218,9 @@ func TestListExpiredPending(t *testing.T) {
 		t.Fatalf("tx2: %v", err)
 	}
 	defer func() { _ = tx2.Rollback(ctx) }()
-	items2, err := store.ListExpiredPending(ctx, tx2, cutoff, 10)
+	ctx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel2()
+	items2, err := store.ListExpiredPending(ctx2, tx2, cutoff, 10)
 	if err != nil {
 		t.Fatalf("tx2 liste: %v", err)
 	}
@@ -317,5 +319,14 @@ func TestDebtStore(t *testing.T) {
 	}
 	if _, err := store.InsertDebt(ctx, pool, sessionID, lotID, "34PAY007", 0); err == nil {
 		t.Fatal("sifir tutarli borc kabul edildi")
+	}
+
+	// Bozuk bicimli plaka normalize edilerek yazilir ve sorguda bulunur.
+	bozukSid := odemeOturumu(t, pool, lotID, tariffID, "34PAY008", at)
+	if _, err := store.InsertDebt(ctx, pool, bozukSid, lotID, "34 pay 008", 300); err != nil {
+		t.Fatalf("bicimsiz plakali borc eklenemedi: %v", err)
+	}
+	if toplam, err := store.SumOpenDebtByPlate(ctx, pool, "34PAY008"); err != nil || toplam != 300 {
+		t.Fatalf("normalize edilmis plaka borcu = %d (%v), beklenen 300", toplam, err)
 	}
 }

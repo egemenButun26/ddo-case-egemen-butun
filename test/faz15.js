@@ -25,6 +25,7 @@ const BEKLENEN_TESTLER = [
   "TestApplyNotificationLateApproval",
   "TestApplyNotificationDoublePayment",
   "TestApplyNotificationConcurrent",
+  "TestApplyNotificationKilitBekler",
   "TestExpirePending",
   "TestExpirePendingConcurrent",
   "TestDecideGate",

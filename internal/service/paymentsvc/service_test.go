@@ -617,6 +617,54 @@ func TestApplyNotificationConcurrent(t *testing.T) {
 	}
 }
 
+func TestApplyNotificationKilitBekler(t *testing.T) {
+	o := yeniOrtam(t, 15)
+	t0 := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	sid := o.oturum(t, "34KLB001", t0)
+	now := t0.Add(time.Hour)
+	res, err := o.svc.CreatePayment(o.ctx, paymentsvc.CreateReq{
+		SessionID: sid, Amount: 500, IdempotencyKey: benzersiz("idem"),
+		RequestHash: hash32(1), ProviderRef: benzersiz("prov"), Now: now,
+	})
+	if err != nil {
+		t.Fatalf("odeme: %v", err)
+	}
+
+	tx, err := o.pool.Begin(o.ctx)
+	if err != nil {
+		t.Fatalf("kilit islemi baslatilamadi: %v", err)
+	}
+	defer func() { _ = tx.Rollback(o.ctx) }()
+	if _, err := store.LockPaymentByProviderRef(o.ctx, tx, res.Payment.ProviderRef); err != nil {
+		t.Fatalf("odeme kilitlenemedi: %v", err)
+	}
+
+	dondu := make(chan error, 1)
+	go func() {
+		_, err := o.svc.ApplyNotification(o.ctx, basariliBildirim(res.Payment.ProviderRef, now.Add(5*time.Second), 500))
+		dondu <- err
+	}()
+
+	select {
+	case err := <-dondu:
+		t.Fatalf("kilit tutulurken bildirim dondu: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	if err := tx.Commit(o.ctx); err != nil {
+		t.Fatalf("kilit islemi commit edilemedi: %v", err)
+	}
+
+	select {
+	case err := <-dondu:
+		if err != nil {
+			t.Fatalf("kilit birakildiktan sonra bildirim: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("kilit birakildiktan sonra bildirim 5 sn icinde donmedi")
+	}
+}
+
 func TestExpirePending(t *testing.T) {
 	o := yeniOrtam(t, 15)
 	o.bekleyenleriTemizle(t)
@@ -729,20 +777,42 @@ func TestDecideGate(t *testing.T) {
 		t.Fatalf("izin doldu karari beklenenden farkli: %+v", d)
 	}
 
-	// Onceki borc ayri raporlanir, Due'ya eklenmez.
+	// Onceki borc ayri raporlanir, Due'ya eklenmez; borc eski bir oturuma
+	// ait oldugu icin guncel oturumun kendi borcu sayilmaz.
 	borcSid := o.oturum(t, "34XYZ34", t0)
 	if _, err := store.InsertDebt(o.ctx, o.pool, borcSid, o.lotID, "34XYZ34", 250); err != nil {
 		t.Fatalf("borc eklenemedi: %v", err)
 	}
+	o.kapat(t, borcSid, t0.Add(30*time.Minute))
+	borcluSid := o.oturum(t, "34XYZ34", t0)
 	d, got, err = o.svc.DecideGate(o.ctx, o.lotID, "34XYZ34", t0.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("borc karari: %v", err)
 	}
-	if got != borcSid || d.Action != payment.ActionDeny || d.Reason != payment.ReasonPriorDebt {
+	if got != borcluSid || d.Action != payment.ActionDeny || d.Reason != payment.ReasonPriorDebt {
 		t.Fatalf("borc karari beklenenden farkli: %+v (oturum %d)", d, got)
 	}
 	if d.PriorDebt != 250 || d.Due != 500 {
 		t.Fatalf("borc ve kalan ayri olmali: Due=%d PriorDebt=%d", d.Due, d.PriorDebt)
+	}
+
+	// Kamera yanlis okusa da eslesen oturumun plakasi aranir; bu oturumun
+	// kendi borc kaydi onceki borca sayilmaz.
+	eskiSid := o.oturum(t, "34ABU123", t0)
+	if _, err := store.InsertDebt(o.ctx, o.pool, eskiSid, o.lotID, "34ABU123", 250); err != nil {
+		t.Fatalf("eski borc eklenemedi: %v", err)
+	}
+	o.kapat(t, eskiSid, t0.Add(30*time.Minute))
+	eslesenSid := o.oturum(t, "34ABU123", t0)
+	if _, err := store.InsertDebt(o.ctx, o.pool, eslesenSid, o.lotID, "34ABU123", 100); err != nil {
+		t.Fatalf("oturum borcu eklenemedi: %v", err)
+	}
+	d, got, err = o.svc.DecideGate(o.ctx, o.lotID, "34ABV123", t0.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("yanlis okuma borc karari: %v", err)
+	}
+	if got != eslesenSid || d.Action != payment.ActionDeny || d.Reason != payment.ReasonPriorDebt || d.PriorDebt != 250 {
+		t.Fatalf("yanlis okuma borc karari beklenenden farkli: %+v (oturum %d)", d, got)
 	}
 }
 

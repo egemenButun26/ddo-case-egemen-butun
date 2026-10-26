@@ -450,7 +450,7 @@ func (s *Service) DecideGate(ctx context.Context, lotID int64, plateRaw string, 
 	if err != nil {
 		return payment.GateDecision{}, 0, err
 	}
-	prior, err := store.SumOpenDebtByPlate(ctx, s.pool, plate.Normalize(plateRaw))
+	prior, err := store.SumOpenDebtByPlateExcept(ctx, s.pool, plate.Normalize(sess.Plate), sessionID)
 	if err != nil {
 		return payment.GateDecision{}, 0, err
 	}
