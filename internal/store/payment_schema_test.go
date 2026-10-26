@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -744,9 +745,40 @@ func dizinVarMi(t *testing.T, db *sql.DB, ad string) bool {
 	return sayi > 0
 }
 
+func latestMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	entries, err := migrations.FS.ReadDir(".")
+	if err != nil {
+		t.Fatalf("migration dosyalari okunamadi: %v", err)
+	}
+	var latest int64
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		ad := entry.Name()
+		ayrac := strings.IndexByte(ad, '_')
+		if ayrac <= 0 {
+			continue
+		}
+		n, err := strconv.ParseInt(ad[:ayrac], 10, 64)
+		if err != nil {
+			t.Fatalf("migration adi cozulemedi %q: %v", ad, err)
+		}
+		if n > latest {
+			latest = n
+		}
+	}
+	if latest == 0 {
+		t.Fatal("migration dosyasi bulunamadi")
+	}
+	return latest
+}
+
 func TestMigrationOdemeTekrar(t *testing.T) {
 	testdb.Open(t)
 	url := os.Getenv("TEST_DATABASE_URL")
+	latest := latestMigrationVersion(t)
 
 	db, err := sql.Open("pgx", url)
 	if err != nil {
@@ -767,10 +799,9 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("surum okunamadi: %v", err)
 	}
-	if version < 4 {
-		t.Fatalf("surum = %d, en az 4 bekleniyordu", version)
+	if version != latest {
+		t.Fatalf("surum = %d, beklenen %d", version, latest)
 	}
-	ilkSurum := version
 
 	if err := goose.DownTo(db, ".", 3); err != nil {
 		t.Fatalf("goose.DownTo(3) basarisiz: %v", err)
@@ -802,7 +833,7 @@ func TestMigrationOdemeTekrar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("surum okunamadi: %v", err)
 	}
-	if version != ilkSurum {
-		t.Fatalf("yeniden up sonrasi surum = %d, beklenen %d", version, ilkSurum)
+	if version != latest {
+		t.Fatalf("yeniden up sonrasi surum = %d, beklenen %d", version, latest)
 	}
 }
