@@ -1,0 +1,3322 @@
+openapi: 3.1.0
+info:
+  title: ParkAkıl API
+  version: 1.0.0
+  description: |
+    ParkAkıl otopark yönetim API'si. Bütün para alanları kuruş cinsinden
+    `integer` (`int64`) olarak taşınır. Kimlik doğrulama, `POST /auth/login`
+    ile alınan sunucu taraflı oturum token'ının `Authorization: Bearer <token>`
+    başlığıyla gönderilmesiyle yapılır.
+  license:
+    name: Proprietary
+servers:
+  - url: http://localhost:8080
+    description: API'ye doğrudan erişim
+  - url: http://localhost:3000/api
+    description: Web uygulaması üzerinden erişim (proxy)
+tags:
+  - name: Sağlık
+    description: Servis durumu, metrikler ve makine okunabilir dokümantasyon.
+  - name: Kimlik
+    description: Oturum açma, kullanıcı bilgisi ve kullanıcı yönetimi.
+  - name: Kamera
+    description: Kamera olaylarının alınması.
+  - name: Oturum/Doluluk
+    description: Otopark, doluluk, son olaylar, inceleme kuyruğu ve rezervasyonlar.
+  - name: Ödeme/Kapı
+    description: Kiosk ödemeleri, sağlayıcı bildirimleri, kapı kararları ve borçlar.
+  - name: Abonelik/Fatura
+    description: Abonelik planları, abonelikler, faturalar ve dönem sonu işlemleri.
+  - name: Raporlar
+    description: Günlük rapor ve sağlayıcı mutabakatı.
+  - name: Yönetim
+    description: Kara liste, sayaç düzeltme ve kayma kayıtları.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        `POST /auth/login` yanıtındaki `token`. Sunucu taraflı oturum token'ıdır;
+        `Authorization: Bearer <token>` biçiminde gönderilir.
+    cameraKey:
+      type: apiKey
+      in: header
+      name: X-Camera-Key
+      description: Kamera, kiosk ve kapı istemcileri için paylaşılan anahtar.
+    metricsToken:
+      type: http
+      scheme: bearer
+      description: Metrik ucu için ayrı bearer token.
+    providerSignature:
+      type: apiKey
+      in: header
+      name: X-Provider-Signature
+      description: |
+        Ödeme sağlayıcısının istek gövdesi üzerinde HMAC-SHA256 ile ürettiği
+        imza. Biçim: `sha256=<hex>`. Sunucu, gizli anahtarla aynı gövdeyi imzalayıp
+        sabit zamanlı karşılaştırma yapar.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+      description: Pozitif tam sayı kimlik.
+    AfterID:
+      name: after_id
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+      description: Bu kimlikten sonraki kayıtları getirir.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Sayfa başına kayıt sayısı (1-100).
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        maxLength: 255
+      description: Aynı isteğin tekrarını ayırt eden istemci anahtarı.
+  schemas:
+    Error:
+      type: object
+      description: Bütün hata yanıtlarının ortak gövdesi.
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Makine okunabilir hata kodu.
+            message:
+              type: string
+              description: İnsan okunabilir hata mesajı.
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - checks
+      properties:
+        status:
+          type: string
+          const: ok
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+          description: Bileşen adından durumuna eşleme.
+          example:
+            database: ok
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    LoginUser:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - role
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - expires_at
+        - user
+      properties:
+        token:
+          type: string
+          description: Sunucu taraflı oturum token'ı.
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/LoginUser'
+    Role:
+      type: string
+      enum:
+        - driver
+        - attendant
+        - accountant
+        - manager
+        - admin
+    UserView:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - role
+        - plate
+        - active
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        plate:
+          type: [string, "null"]
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    AdminUsersResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    CameraEventRequest:
+      type: object
+      required:
+        - lot_id
+        - camera_id
+        - camera_event_id
+        - direction
+        - captured_at
+      properties:
+        lot_id:
+          type: integer
+          format: int64
+        camera_id:
+          type: string
+          maxLength: 128
+        camera_event_id:
+          type: string
+          maxLength: 128
+        direction:
+          type: string
+          enum:
+            - entry
+            - exit
+        plate_raw:
+          type: string
+          maxLength: 64
+        captured_at:
+          type: string
+          format: date-time
+    CameraEventResponse:
+      type: object
+      required:
+        - event_id
+        - outcome
+        - session_id
+        - review_id
+        - amount_kurus
+        - replayed
+        - closed_by_orphan_exit
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        outcome:
+          type: string
+          enum:
+            - opened
+            - duplicate_entry
+            - closed
+            - duplicate_exit
+            - orphan_exit
+            - review
+        session_id:
+          type: [integer, "null"]
+          format: int64
+        review_id:
+          type: [integer, "null"]
+          format: int64
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        replayed:
+          type: boolean
+        closed_by_orphan_exit:
+          type: boolean
+    Kurus:
+      type: integer
+      format: int64
+      description: Kuruş cinsinden para tutarı.
+    NextAfterID:
+      type: [integer, "null"]
+      format: int64
+      description: Bir sonraki sayfa için `after_id` olarak gönderilecek kimlik.
+    NextBeforeID:
+      type: [integer, "null"]
+      format: int64
+      description: Bir sonraki sayfa için `before_id` olarak gönderilecek kimlik.
+    LotView:
+      type: object
+      required:
+        - id
+        - code
+        - name
+        - capacity
+      properties:
+        id:
+          type: integer
+          format: int64
+        code:
+          type: string
+        name:
+          type: string
+        capacity:
+          type: integer
+    OccupancyView:
+      type: object
+      required:
+        - lot_id
+        - code
+        - capacity
+        - occupied
+        - active_reservations
+        - available
+      properties:
+        lot_id:
+          type: integer
+          format: int64
+        code:
+          type: string
+        capacity:
+          type: integer
+        occupied:
+          type: integer
+        active_reservations:
+          type: integer
+        available:
+          type: integer
+    RecentEventView:
+      type: object
+      required:
+        - id
+        - lot_id
+        - direction
+        - plate_raw
+        - plate_norm
+        - captured_at
+        - outcome
+        - session_id
+      properties:
+        id:
+          type: integer
+          format: int64
+        lot_id:
+          type: integer
+          format: int64
+        direction:
+          type: string
+        plate_raw:
+          type: string
+        plate_norm:
+          type: string
+        captured_at:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+        session_id:
+          type: [integer, "null"]
+          format: int64
+    RecentEventsResponse:
+      type: object
+      required:
+        - items
+        - next_before_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecentEventView'
+        next_before_id:
+          $ref: '#/components/schemas/NextBeforeID'
+    ReviewView:
+      type: object
+      required:
+        - id
+        - event_id
+        - lot_id
+        - reason
+        - read_plate
+        - status
+        - created_at
+        - resolved_at
+        - suggested_session_id
+        - plate_raw
+        - plate_norm
+        - captured_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        event_id:
+          type: integer
+          format: int64
+        lot_id:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        read_plate:
+          type: string
+        status:
+          type: string
+          enum:
+            - open
+            - resolved
+        created_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: [string, "null"]
+          format: date-time
+        suggested_session_id:
+          type: [integer, "null"]
+          format: int64
+        plate_raw:
+          type: string
+        plate_norm:
+          type: string
+        captured_at:
+          type: string
+          format: date-time
+    ReviewsResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    ResolveReviewRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - dismiss
+            - link_session
+        session_id:
+          type: integer
+          format: int64
+          description: '`action` = `link_session` iken zorunlu ve pozitif olmalı.'
+    ResolveReviewResponse:
+      type: object
+      required:
+        - id
+        - status
+        - resolved_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          const: resolved
+        resolved_at:
+          type: string
+          format: date-time
+    BlacklistView:
+      type: object
+      required:
+        - id
+        - plate
+        - reason
+        - active
+        - created_by
+        - created_at
+        - removed_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        plate:
+          type: string
+        reason:
+          type: string
+        active:
+          type: boolean
+        created_by:
+          type: [integer, "null"]
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        removed_at:
+          type: [string, "null"]
+          format: date-time
+    BlacklistListResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlacklistView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    CreateBlacklistRequest:
+      type: object
+      required:
+        - plate
+        - reason
+      properties:
+        plate:
+          type: string
+        reason:
+          type: string
+    CreateReservationRequest:
+      type: object
+      required:
+        - lot_id
+        - plate
+      properties:
+        lot_id:
+          type: integer
+          format: int64
+        plate:
+          type: string
+    ReservationView:
+      type: object
+      required:
+        - id
+        - lot_id
+        - plate
+        - status
+        - reserved_at
+        - expires_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        lot_id:
+          type: integer
+          format: int64
+        plate:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - arrived
+            - released
+            - cancelled
+        reserved_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    RecountResponse:
+      type: object
+      required:
+        - stored
+        - recomputed
+        - drifted
+        - corrected
+      properties:
+        stored:
+          type: integer
+        recomputed:
+          type: integer
+        drifted:
+          type: boolean
+        corrected:
+          type: boolean
+    CounterDriftView:
+      type: object
+      required:
+        - id
+        - lot_id
+        - stored
+        - recomputed
+        - detected_at
+        - corrected
+      properties:
+        id:
+          type: integer
+          format: int64
+        lot_id:
+          type: integer
+          format: int64
+        stored:
+          type: integer
+        recomputed:
+          type: integer
+        detected_at:
+          type: string
+          format: date-time
+        corrected:
+          type: boolean
+    CounterDriftsResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CounterDriftView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    DailyReportResponse:
+      type: object
+      required:
+        - day
+        - lot_id
+        - entries
+        - exits
+        - closed_sessions
+        - total_amount_kurus
+        - collected_kurus
+        - open_debt_kurus
+        - open_reviews
+      properties:
+        day:
+          type: string
+          format: date
+        lot_id:
+          type: integer
+          format: int64
+        entries:
+          type: integer
+        exits:
+          type: integer
+        closed_sessions:
+          type: integer
+        total_amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        collected_kurus:
+          $ref: '#/components/schemas/Kurus'
+        open_debt_kurus:
+          $ref: '#/components/schemas/Kurus'
+        open_reviews:
+          type: integer
+    KioskQuoteResponse:
+      type: object
+      required:
+        - session_id
+        - plate
+        - entered_at
+        - total_kurus
+        - paid_kurus
+        - due_kurus
+        - permit_expires_at
+      properties:
+        session_id:
+          type: integer
+          format: int64
+        plate:
+          type: string
+        entered_at:
+          type: string
+          format: date-time
+        total_kurus:
+          $ref: '#/components/schemas/Kurus'
+        paid_kurus:
+          $ref: '#/components/schemas/Kurus'
+        due_kurus:
+          $ref: '#/components/schemas/Kurus'
+        permit_expires_at:
+          type: [string, "null"]
+          format: date-time
+    CreatePaymentRequest:
+      type: object
+      required:
+        - session_id
+        - amount_kurus
+      properties:
+        session_id:
+          type: integer
+          format: int64
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+    KioskPaymentResponse:
+      type: object
+      required:
+        - payment_id
+        - session_id
+        - provider_ref
+        - amount_kurus
+        - status
+        - replayed
+      properties:
+        payment_id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        provider_ref:
+          type: string
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        status:
+          type: string
+          enum:
+            - pending
+            - succeeded
+            - failed
+            - timed_out
+        replayed:
+          type: boolean
+    ProviderNotificationRequest:
+      type: object
+      required:
+        - provider_ref
+        - outcome
+        - amount_kurus
+        - provider_at
+      properties:
+        provider_ref:
+          type: string
+        outcome:
+          type: string
+          enum:
+            - succeeded
+            - failed
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        provider_at:
+          type: string
+          format: date-time
+    ProviderNotificationResponse:
+      type: object
+      required:
+        - payment_id
+        - session_id
+        - status
+        - duplicate
+        - late_approval
+        - refund_required
+        - refund_id
+      properties:
+        payment_id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+        duplicate:
+          type: boolean
+        late_approval:
+          type: boolean
+        refund_required:
+          type: boolean
+        refund_id:
+          type: [integer, "null"]
+          format: int64
+    GateDecisionResponse:
+      type: object
+      required:
+        - action
+        - reason
+        - due_kurus
+        - prior_debt_kurus
+        - permit_expires_at
+        - session_id
+      properties:
+        action:
+          type: string
+          enum:
+            - open
+            - deny
+        reason:
+          type: string
+          enum:
+            - no_match
+            - low_confidence
+            - prior_debt
+            - no_charge
+            - paid
+            - permit_valid
+            - permit_expired
+            - payment_pending
+            - payment_required
+        due_kurus:
+          $ref: '#/components/schemas/Kurus'
+        prior_debt_kurus:
+          $ref: '#/components/schemas/Kurus'
+        permit_expires_at:
+          type: [string, "null"]
+          format: date-time
+        session_id:
+          type: [integer, "null"]
+          format: int64
+    PaymentView:
+      type: object
+      required:
+        - id
+        - session_id
+        - amount_kurus
+        - status
+        - provider_ref
+        - requested_at
+        - paid_at
+        - confirmed_at
+        - late_approval
+      properties:
+        id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        status:
+          type: string
+          enum:
+            - pending
+            - succeeded
+            - failed
+            - timed_out
+        provider_ref:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        confirmed_at:
+          type: [string, "null"]
+          format: date-time
+        late_approval:
+          type: boolean
+    PaymentsResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    RefundRequest:
+      type: object
+      required:
+        - payment_id
+        - amount_kurus
+        - reason
+      properties:
+        payment_id:
+          type: integer
+          format: int64
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        reason:
+          type: string
+          const: manual
+          description: Manuel iade için yalnız `manual` kabul edilir.
+    RefundView:
+      type: object
+      required:
+        - id
+        - payment_id
+        - amount_kurus
+        - status
+        - reason
+        - requested_at
+        - replayed
+      properties:
+        id:
+          type: integer
+          format: int64
+        payment_id:
+          type: integer
+          format: int64
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        status:
+          type: string
+        reason:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        replayed:
+          type: boolean
+    DebtView:
+      type: object
+      required:
+        - id
+        - session_id
+        - lot_id
+        - amount_kurus
+        - paid_kurus
+        - remaining_kurus
+        - status
+      properties:
+        id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        lot_id:
+          type: integer
+          format: int64
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        paid_kurus:
+          $ref: '#/components/schemas/Kurus'
+        remaining_kurus:
+          $ref: '#/components/schemas/Kurus'
+        status:
+          type: string
+    DebtsResponse:
+      type: object
+      required:
+        - plate
+        - items
+        - total_kurus
+      properties:
+        plate:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DebtView'
+        total_kurus:
+          $ref: '#/components/schemas/Kurus'
+    PlanView:
+      type: object
+      required:
+        - id
+        - code
+        - lot_id
+        - monthly_price_kurus
+        - active
+      properties:
+        id:
+          type: integer
+          format: int64
+        code:
+          type: string
+        lot_id:
+          type: integer
+          format: int64
+        monthly_price_kurus:
+          $ref: '#/components/schemas/Kurus'
+        active:
+          type: boolean
+    PlansResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanView'
+    CreateSubscriptionRequest:
+      type: object
+      required:
+        - plate
+        - plan_code
+      properties:
+        plate:
+          type: string
+        plan_code:
+          type: string
+    SubscriptionView:
+      type: object
+      required:
+        - id
+        - plan_id
+        - plan_code
+        - monthly_price_kurus
+        - lot_id
+        - plate
+        - user_id
+        - status
+        - current_period_start
+        - current_period_end
+        - cancelled_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+        plan_code:
+          type: string
+        monthly_price_kurus:
+          $ref: '#/components/schemas/Kurus'
+        lot_id:
+          type: integer
+          format: int64
+        plate:
+          type: string
+        user_id:
+          type: [integer, "null"]
+          format: int64
+        status:
+          type: string
+          enum:
+            - active
+            - past_due
+            - suspended
+            - cancelled
+        current_period_start:
+          type: string
+          format: date-time
+        current_period_end:
+          type: string
+          format: date-time
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SubscriptionsResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    CancelSubscriptionResponse:
+      type: object
+      required:
+        - subscription_id
+        - status
+        - credit_kurus
+        - invoice_id
+      properties:
+        subscription_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          const: cancelled
+        credit_kurus:
+          $ref: '#/components/schemas/Kurus'
+        invoice_id:
+          type: integer
+          format: int64
+    ChangePlanRequest:
+      type: object
+      required:
+        - plan_code
+      properties:
+        plan_code:
+          type: string
+    ChangePlanResponse:
+      type: object
+      required:
+        - subscription_id
+        - new_plan_code
+        - charge_kurus
+        - credit_kurus
+        - net_kurus
+        - direction
+        - charge_invoice_id
+        - credit_invoice_id
+      properties:
+        subscription_id:
+          type: integer
+          format: int64
+        new_plan_code:
+          type: string
+        charge_kurus:
+          $ref: '#/components/schemas/Kurus'
+        credit_kurus:
+          $ref: '#/components/schemas/Kurus'
+        net_kurus:
+          $ref: '#/components/schemas/Kurus'
+        direction:
+          type: string
+          enum:
+            - upgrade
+            - downgrade
+            - even
+        charge_invoice_id:
+          type: integer
+          format: int64
+        credit_invoice_id:
+          type: integer
+          format: int64
+    InvoiceView:
+      type: object
+      required:
+        - id
+        - subscription_id
+        - period_start
+        - period_end
+        - kind
+        - amount_kurus
+        - status
+        - attempts
+        - next_retry_at
+        - paid_at
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        subscription_id:
+          type: integer
+          format: int64
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        kind:
+          type: string
+          enum:
+            - period
+            - proration_charge
+            - proration_credit
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+        status:
+          type: string
+          enum:
+            - open
+            - paid
+            - failed
+            - void
+        attempts:
+          type: integer
+        next_retry_at:
+          type: [string, "null"]
+          format: date-time
+        paid_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    InvoicesResponse:
+      type: object
+      required:
+        - items
+        - next_after_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceView'
+        next_after_id:
+          $ref: '#/components/schemas/NextAfterID'
+    PeriodEndRequest:
+      type: object
+      required:
+        - period_start
+      properties:
+        period_start:
+          type: string
+          format: date
+          description: Ayın ilk günü olmalı (`YYYY-MM-01`).
+    PeriodEndResponse:
+      type: object
+      required:
+        - invoices_created
+      properties:
+        invoices_created:
+          type: integer
+    PaymentAttemptRequest:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+    PaymentAttemptResponse:
+      type: object
+      required:
+        - invoice_id
+        - subscription_id
+        - status
+        - attempts
+        - next_retry_at
+        - subscription_status
+      properties:
+        invoice_id:
+          type: integer
+          format: int64
+        subscription_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+        attempts:
+          type: integer
+        next_retry_at:
+          type: [string, "null"]
+          format: date-time
+        subscription_status:
+          type: string
+          enum:
+            - active
+            - past_due
+            - suspended
+            - cancelled
+    ProviderSettlementRow:
+      type: object
+      required:
+        - provider_ref
+        - amount_kurus
+      properties:
+        provider_ref:
+          type: string
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+    ReconciliationTxn:
+      type: object
+      required:
+        - provider_ref
+        - amount_kurus
+      properties:
+        provider_ref:
+          type: string
+        amount_kurus:
+          $ref: '#/components/schemas/Kurus'
+    ReconciliationAmountMismatch:
+      type: object
+      required:
+        - provider_ref
+        - ours_kurus
+        - provider_kurus
+      properties:
+        provider_ref:
+          type: string
+        ours_kurus:
+          $ref: '#/components/schemas/Kurus'
+        provider_kurus:
+          $ref: '#/components/schemas/Kurus'
+    ReconciliationReport:
+      type: object
+      required:
+        - matched
+        - missing_in_provider
+        - missing_in_ours
+        - amount_mismatch
+        - our_total_kurus
+        - provider_total_kurus
+        - diff_kurus
+      properties:
+        matched:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationTxn'
+        missing_in_provider:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationTxn'
+        missing_in_ours:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationTxn'
+        amount_mismatch:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReconciliationAmountMismatch'
+        our_total_kurus:
+          $ref: '#/components/schemas/Kurus'
+        provider_total_kurus:
+          $ref: '#/components/schemas/Kurus'
+        diff_kurus:
+          $ref: '#/components/schemas/Kurus'
+    ReconciliationImportResponse:
+      type: object
+      required:
+        - imported
+        - report
+      properties:
+        imported:
+          type: integer
+        report:
+          $ref: '#/components/schemas/ReconciliationReport'
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Servis sağlık durumu
+      description: Veritabanı erişimini denetler. Kimlik doğrulaması istemez.
+      tags:
+        - Sağlık
+      security: []
+      x-roles: []
+      responses:
+        '200':
+          description: Servis ve bağımlılıkları sağlıklı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Veritabanına erişilemiyor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus metrikleri
+      description: Metrik ucudur; ayrı bir bearer token ister.
+      tags:
+        - Sağlık
+      security:
+        - metricsToken: []
+      x-roles: []
+      responses:
+        '200':
+          description: Prometheus metin biçimi.
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401':
+          description: Token eksik ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /openapi.yaml:
+    get:
+      operationId: getOpenAPIDocument
+      summary: OpenAPI dokümanı
+      description: Bu dokümanı `application/yaml` olarak sunar. Kimlik doğrulaması istemez.
+      tags:
+        - Sağlık
+      security: []
+      x-roles: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 dokümanı.
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /camera-events:
+    post:
+      operationId: postCameraEvent
+      summary: Kamera olayı gönder
+      description: |
+        Kamera giriş/çıkış olayını işler. Kamera anahtarı (`X-Camera-Key`) ister.
+        Aynı `camera_event_id` tekrar gönderilirse sonuç `replayed: true` ve 200 döner.
+      tags:
+        - Kamera
+      security:
+        - cameraKey: []
+      x-roles:
+        - camera
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraEventRequest'
+      responses:
+        '201':
+          description: Olay işlendi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraEventResponse'
+        '200':
+          description: Aynı olay tekrar gönderildi (replay).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraEventResponse'
+        '400':
+          description: Gövde JSON değil (`invalid_json`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Kamera anahtarı eksik ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Otopark bulunamadı (`lot_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Olay çakışması (`event_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Gövde çok büyük (`payload_too_large`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: İçerik türü JSON değil (`unsupported_media_type`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Olay doğrulaması başarısız (`invalid_event`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/login:
+    post:
+      operationId: postLogin
+      summary: Oturum aç
+      description: E-posta ve parola ile sunucu taraflı oturum token'ı üretir.
+      tags:
+        - Kimlik
+      security: []
+      x-roles: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Oturum açıldı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Gövde JSON değil (`invalid_json`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: E-posta ya da parola hatalı (`invalid_credentials`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/logout:
+    post:
+      operationId: postLogout
+      summary: Oturumu kapat
+      description: Geçerli oturum token'ını iptal eder.
+      tags:
+        - Kimlik
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - attendant
+        - accountant
+        - manager
+        - admin
+      responses:
+        '204':
+          description: Oturum kapatıldı.
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/me:
+    get:
+      operationId: getMe
+      summary: Geçerli kullanıcı
+      description: Token'a bağlı kullanıcıyı döndürür.
+      tags:
+        - Kimlik
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - attendant
+        - accountant
+        - manager
+        - admin
+      responses:
+        '200':
+          description: Kullanıcı bilgisi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserView'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      summary: Kullanıcıları listele
+      description: Yalnız `admin`. `after_id` tabanlı sayfalama kullanır.
+      tags:
+        - Kimlik
+      security:
+        - bearerAuth: []
+      x-roles:
+        - admin
+      parameters:
+        - name: after_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Kullanıcı sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUsersResponse'
+        '400':
+          description: Sayfalama parametresi geçersiz (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /lots:
+    get:
+      operationId: getLots
+      summary: Otoparkları listele
+      description: Oturum açmış her rol çağırabilir.
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - attendant
+        - accountant
+        - manager
+        - admin
+      responses:
+        '200':
+          description: Otopark listesi.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LotView'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /occupancy:
+    get:
+      operationId: getOccupancy
+      summary: Anlık doluluk
+      description: Otopark başına kapasite, dolu, rezerve ve boş sayıları.
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - attendant
+        - manager
+        - admin
+      responses:
+        '200':
+          description: Doluluk listesi.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OccupancyView'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /events/recent:
+    get:
+      operationId: getRecentEvents
+      summary: Son kamera olayları
+      description: '`before_id` tabanlı geriye sayfalama kullanır.'
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - attendant
+        - manager
+        - admin
+      parameters:
+        - name: lot_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: before_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Olay sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentEventsResponse'
+        '400':
+          description: Sorgu ya da sayfalama geçersiz (`invalid_query`, `invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reviews:
+    get:
+      operationId: getReviews
+      summary: İnceleme kuyruğu
+      description: Varsayılan durum `open`; `status` ile `open` ya da `resolved` seçilir.
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - attendant
+        - manager
+        - admin
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - resolved
+            default: open
+        - name: after_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: İnceleme sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewsResponse'
+        '400':
+          description: Durum ya da sayfalama geçersiz (`invalid_status`, `invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reviews/{id}/resolve:
+    post:
+      operationId: postResolveReview
+      summary: İncelemeyi çöz
+      description: İncelemeyi kapatır; `link_session` eylemi olayı bir oturuma bağlar.
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - attendant
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveReviewRequest'
+      responses:
+        '200':
+          description: İnceleme çözüldü.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveReviewResponse'
+        '400':
+          description: Kimlik, gövde, eylem ya da oturum/otopark uyuşmazlığı (`invalid_id`, `invalid_json`, `invalid_action`, `session_lot_mismatch`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: İnceleme ya da oturum yok (`not_found`, `session_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: İnceleme zaten çözülmüş (`review_not_open`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /blacklist:
+    get:
+      operationId: getBlacklist
+      summary: Kara listeyi listele
+      description: '`after_id` tabanlı sayfalama kullanır.'
+      tags:
+        - Yönetim
+      security:
+        - bearerAuth: []
+      x-roles:
+        - attendant
+        - manager
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/AfterID'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Kara liste sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlacklistListResponse'
+        '400':
+          description: Sayfalama geçersiz (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      operationId: postBlacklist
+      summary: Kara listeye ekle
+      description: Plaka ve gerekçe zorunludur; aynı plaka etkinse çakışma döner.
+      tags:
+        - Yönetim
+      security:
+        - bearerAuth: []
+      x-roles:
+        - manager
+        - admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBlacklistRequest'
+      responses:
+        '201':
+          description: Kara liste kaydı oluşturuldu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlacklistView'
+        '400':
+          description: Gövde geçersiz (`invalid_json`, `invalid_blacklist`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Plaka zaten kara listede (`blacklist_exists`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /blacklist/{id}:
+    delete:
+      operationId: deleteBlacklist
+      summary: Kara liste kaydını kaldır
+      description: Kaydı pasife çeker.
+      tags:
+        - Yönetim
+      security:
+        - bearerAuth: []
+      x-roles:
+        - manager
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Kayıt kaldırıldı.
+        '400':
+          description: Kimlik geçersiz (`invalid_id`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Kayıt yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reservations:
+    post:
+      operationId: postReservation
+      summary: Rezervasyon oluştur
+      description: |
+        Sürücü yalnız kendi plakası için rezervasyon açabilir. Rezervasyon penceresi
+        30 dakikadır.
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - manager
+        - admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReservationRequest'
+      responses:
+        '201':
+          description: Rezervasyon oluşturuldu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationView'
+        '400':
+          description: Gövde ya da plaka geçersiz (`invalid_json`, `invalid_lot`, `invalid_plate`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Sürücü başka plaka için rezervasyon açamaz (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Otopark yok (`lot_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Kapasite yok, rezervasyon var ya da açık oturum var (`no_capacity`, `reservation_exists`, `open_session_exists`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reservations/{id}:
+    delete:
+      operationId: deleteReservation
+      summary: Rezervasyonu iptal et
+      description: Sürücü yalnız kendi plakasının rezervasyonunu iptal edebilir.
+      tags:
+        - Oturum/Doluluk
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - manager
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204':
+          description: Rezervasyon iptal edildi.
+        '400':
+          description: Kimlik geçersiz (`invalid_id`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rezervasyon başka plakaya ait (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Rezervasyon yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Rezervasyon etkin değil (`reservation_not_active`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reports/daily:
+    get:
+      operationId: getDailyReport
+      summary: Günlük rapor
+      description: Verilen gün için giriş, çıkış, kapanan oturum ve para toplamları.
+      tags:
+        - Raporlar
+      security:
+        - bearerAuth: []
+      x-roles:
+        - accountant
+        - manager
+        - admin
+      parameters:
+        - name: day
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            description: '`YYYY-MM-DD`; Europe/Istanbul günü.'
+        - name: lot_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '200':
+          description: Günlük rapor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyReportResponse'
+        '400':
+          description: Gün ya da otopark kimliği geçersiz (`invalid_day`, `invalid_query`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/occupancy/{lot_id}/recount:
+    post:
+      operationId: postOccupancyRecount
+      summary: Doluluk sayacını yeniden hesapla
+      description: Saklanan sayacı yeniden hesaplar ve sapma varsa düzeltir. Yalnız `admin`.
+      tags:
+        - Yönetim
+      security:
+        - bearerAuth: []
+      x-roles:
+        - admin
+      parameters:
+        - name: lot_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Yeniden hesaplama sonucu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecountResponse'
+        '400':
+          description: Otopark kimliği geçersiz (`invalid_id`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Otopark yok (`lot_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/counter-drifts:
+    get:
+      operationId: getCounterDrifts
+      summary: Sayaç kayma kayıtları
+      description: '`after_id` tabanlı sayfalama kullanır.'
+      tags:
+        - Yönetim
+      security:
+        - bearerAuth: []
+      x-roles:
+        - admin
+        - manager
+      parameters:
+        - $ref: '#/components/parameters/AfterID'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Kayma kayıtları sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CounterDriftsResponse'
+        '400':
+          description: Sayfalama geçersiz (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /kiosk/quote:
+    get:
+      operationId: getKioskQuote
+      summary: Kiosk ödeme teklifi
+      description: |
+        Otopark ve ham plaka ile açık oturumu eşleştirip ödenecek tutarı hesaplar.
+        Kamera anahtarı ister.
+      tags:
+        - Ödeme/Kapı
+      security:
+        - cameraKey: []
+      x-roles:
+        - camera
+      parameters:
+        - name: lot_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: plate
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ödeme teklifi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KioskQuoteResponse'
+        '400':
+          description: '`lot_id` ya da `plate` geçersiz (`invalid_request`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Kamera anahtarı eksik ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Eşleşen açık oturum yok (`session_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Plaka eşleşmesi belirsiz (`ambiguous_plate`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /kiosk/payments:
+    post:
+      operationId: postKioskPayment
+      summary: Kiosk ödemesi başlat
+      description: |
+        Oturum için ödeme kaydı oluşturur ve sağlayıcıya bildirir.
+        `Idempotency-Key` zorunludur (en çok 255 karakter). Aynı anahtar ve aynı
+        gövde ile tekrar gönderim 200 ve `replayed: true` döner. Kamera anahtarı ister.
+      tags:
+        - Ödeme/Kapı
+      security:
+        - cameraKey: []
+      x-roles:
+        - camera
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '201':
+          description: Ödeme oluşturuldu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KioskPaymentResponse'
+        '200':
+          description: Aynı idempotency anahtarıyla tekrar gönderim (replay).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KioskPaymentResponse'
+        '400':
+          description: Idempotency anahtarı ya da gövde geçersiz (`idempotency_key_required`, `invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Kamera anahtarı eksik ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Oturum yok ya da açık değil (`session_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            Idempotency çakışması, tutar uyuşmazlığı, borç yok ya da bekleyen ödeme
+            (`idempotency_conflict`, `amount_mismatch`, `nothing_due`, `payment_pending`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Gövde çok büyük (`payload_too_large`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: İçerik türü JSON değil (`unsupported_media_type`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /provider/notifications:
+    post:
+      operationId: postProviderNotification
+      summary: Sağlayıcı sonuç bildirimi
+      description: |
+        Ödeme sağlayıcısının sonuç bildirimini alır. Gövde `X-Provider-Signature`
+        başlığındaki HMAC-SHA256 imzasıyla doğrulanır; geçersiz imza 401 döner.
+      tags:
+        - Ödeme/Kapı
+      security:
+        - providerSignature: []
+      x-roles:
+        - provider
+      parameters:
+        - name: X-Provider-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: '`sha256=<hex>` biçiminde HMAC-SHA256 imzası.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderNotificationRequest'
+      responses:
+        '200':
+          description: Bildirim işlendi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderNotificationResponse'
+        '400':
+          description: Gövde ya da bildirim geçersiz (`invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: İmza yok ya da geçersiz (`invalid_signature`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Sağlayıcı referansı bulunamadı (`session_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Bildirim durum çakışması (`notification_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Gövde çok büyük (`payload_too_large`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /gate/decision:
+    get:
+      operationId: getGateDecision
+      summary: Kapı açma kararı
+      description: Plaka eşleşmesi, ödeme ve önceki borca göre `open`/`deny` kararı verir. Kamera anahtarı ister.
+      tags:
+        - Ödeme/Kapı
+      security:
+        - cameraKey: []
+      x-roles:
+        - camera
+      parameters:
+        - name: lot_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: plate
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Kapı kararı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateDecisionResponse'
+        '400':
+          description: '`lot_id` ya da `plate` geçersiz (`invalid_request`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Kamera anahtarı eksik ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /payments:
+    get:
+      operationId: getPayments
+      summary: Ödemeleri listele
+      description: '`after_id` tabanlı sayfalama kullanır.'
+      tags:
+        - Ödeme/Kapı
+      security:
+        - bearerAuth: []
+      x-roles:
+        - accountant
+        - manager
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/AfterID'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Ödeme sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentsResponse'
+        '400':
+          description: Sayfalama geçersiz (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /refunds:
+    post:
+      operationId: postRefund
+      summary: Manuel iade
+      description: |
+        Başarılı bir ödemenin bir kısmını ya da tamamını iade eder.
+        `Idempotency-Key` zorunludur; tekrar gönderim 200 ve `replayed: true` döner.
+      tags:
+        - Ödeme/Kapı
+      security:
+        - bearerAuth: []
+      x-roles:
+        - accountant
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '201':
+          description: İade oluşturuldu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundView'
+        '200':
+          description: Aynı idempotency anahtarıyla tekrar gönderim (replay).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundView'
+        '400':
+          description: Idempotency anahtarı ya da gövde geçersiz (`idempotency_key_required`, `invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Ödeme yok (`session_not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: İade tutarı ya da durum uygun değil (`refund_exceeds_payment`, `refund_not_allowed`, `idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Gövde çok büyük (`payload_too_large`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '415':
+          description: İçerik türü JSON değil (`unsupported_media_type`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /debts:
+    get:
+      operationId: getDebts
+      summary: Açık borçlar
+      description: |
+        Plaka verilmezse sürücü için kendi plakası kullanılır; diğer roller `plate`
+        göndermek zorundadır.
+      tags:
+        - Ödeme/Kapı
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - attendant
+        - accountant
+        - manager
+        - admin
+      parameters:
+        - name: plate
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Açık borç listesi ve toplam.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtsResponse'
+        '400':
+          description: Plaka gerekli (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Sürücü başka plakayı sorgulayamaz (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /plans:
+    get:
+      operationId: getPlans
+      summary: Abonelik planları
+      description: Oturum açmış her rol çağırabilir.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - attendant
+        - accountant
+        - manager
+        - admin
+      responses:
+        '200':
+          description: Plan listesi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlansResponse'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /subscriptions:
+    get:
+      operationId: getSubscriptions
+      summary: Abonelikleri listele
+      description: |
+        Sürücü yalnız kendi plakasının aboneliklerini görür. `after_id` tabanlı
+        sayfalama kullanır.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - accountant
+        - manager
+        - admin
+      parameters:
+        - name: plate
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/AfterID'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Abonelik sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionsResponse'
+        '400':
+          description: Sayfalama geçersiz (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Sürücü başka plakayı listeleyemez (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      operationId: postSubscription
+      summary: Abonelik oluştur
+      description: Sürücü yalnız kendi plakası için abonelik açabilir.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - manager
+        - admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionRequest'
+      responses:
+        '201':
+          description: Abonelik oluşturuldu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionView'
+        '400':
+          description: Gövde ya da alanlar geçersiz (`invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Başka plaka için abonelik açılamaz (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan ya da otopark yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Plakada zaten etkin abonelik var (`subscription_exists`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /subscriptions/{id}/cancel:
+    post:
+      operationId: postSubscriptionCancel
+      summary: Aboneliği iptal et
+      description: Kalan süre için orantılı iade faturası üretir. Sürücü yalnız kendi aboneliğini iptal edebilir.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - manager
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Abonelik iptal edildi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelSubscriptionResponse'
+        '400':
+          description: Kimlik geçersiz (`invalid_id`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Abonelik bu kullanıcıya ait değil (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Abonelik yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Abonelik zaten iptal ya da fatura kapalı (`subscription_cancelled`, `invoice_paid`, `proration_invoice_closed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /subscriptions/{id}/change-plan:
+    post:
+      operationId: postSubscriptionChangePlan
+      summary: Abonelik planını değiştir
+      description: Fark, dönem içi orantılı borç/alacak faturası olarak üretilir.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - manager
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePlanRequest'
+      responses:
+        '200':
+          description: Plan değişikliği uygulandı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePlanResponse'
+        '400':
+          description: Kimlik, gövde ya da plan kodu geçersiz (`invalid_id`, `invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Abonelik bu kullanıcıya ait değil (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Abonelik ya da plan yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Aynı plan, iptal abonelik ya da kapalı dönem faturası (`same_plan`, `subscription_cancelled`, `invoice_paid`, `proration_invoice_closed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /invoices:
+    get:
+      operationId: getInvoices
+      summary: Faturaları listele
+      description: Sürücü yalnız kendi plakasının faturalarını görür.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - driver
+        - accountant
+        - manager
+        - admin
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - open
+              - paid
+              - failed
+              - void
+        - name: subscription_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/AfterID'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Fatura sayfası.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoicesResponse'
+        '400':
+          description: Durum, abonelik kimliği ya da sayfalama geçersiz (`invalid_status`, `invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Sürücü başka aboneliğin faturalarını göremez (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Abonelik yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /billing/period-end:
+    post:
+      operationId: postBillingPeriodEnd
+      summary: Dönem sonu faturalarını üret
+      description: Verilen ayın ilk günü için bütün etkin aboneliklerin dönem faturalarını oluşturur.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - admin
+        - accountant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodEndRequest'
+      responses:
+        '200':
+          description: Dönem sonu çalıştı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodEndResponse'
+        '400':
+          description: Gövde ya da dönem geçersiz (`invalid_json`, `invalid_period`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /invoices/{id}/payment-attempts:
+    post:
+      operationId: postInvoicePaymentAttempt
+      summary: Fatura ödeme denemesi kaydet
+      description: Başarılı/başarısız denemeyi işler, gecikme takvimini ilerletir.
+      tags:
+        - Abonelik/Fatura
+      security:
+        - bearerAuth: []
+      x-roles:
+        - accountant
+        - admin
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentAttemptRequest'
+      responses:
+        '200':
+          description: Deneme kaydedildi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentAttemptResponse'
+        '400':
+          description: Kimlik, gövde ya da `success` geçersiz (`invalid_id`, `invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Fatura yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Fatura zaten ödendi ya da kapalı (`invoice_paid`, `proration_invoice_closed`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reconciliation/{day}:
+    get:
+      operationId: getReconciliationReport
+      summary: Günün mutabakat raporu
+      description: Daha önce içe aktarılmış sağlayıcı dökümüyle karşılaştırma sonucunu döndürür.
+      tags:
+        - Raporlar
+      security:
+        - bearerAuth: []
+      x-roles:
+        - accountant
+        - manager
+        - admin
+      parameters:
+        - name: day
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Mutabakat raporu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationReport'
+        '400':
+          description: Gün geçersiz (`invalid_day`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Rapor yok (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /reconciliation/{day}/provider-report:
+    post:
+      operationId: postReconciliationProviderReport
+      summary: Sağlayıcı dökümünü içe aktar
+      description: Satırları içe aktarır ve aynı gün için mutabakat raporunu üretir.
+      tags:
+        - Raporlar
+      security:
+        - bearerAuth: []
+      x-roles:
+        - accountant
+        - admin
+      parameters:
+        - name: day
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProviderSettlementRow'
+      responses:
+        '200':
+          description: İçe aktarma ve mutabakat sonucu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationImportResponse'
+        '400':
+          description: Gün, gövde ya da satır geçersiz (`invalid_day`, `invalid_json`, `invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Token yok ya da geçersiz (`unauthorized`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Rol yetkisi yok (`forbidden`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Sunucu hatası (`internal`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
