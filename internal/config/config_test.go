@@ -35,6 +35,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DBPingTimeout != 2*time.Second {
 		t.Errorf("DBPingTimeout = %v, beklenen 2s", cfg.DBPingTimeout)
 	}
+	if cfg.AuthSessionTTL != 12*time.Hour {
+		t.Errorf("AuthSessionTTL = %v, beklenen 12h", cfg.AuthSessionTTL)
+	}
 }
 
 func TestLoadCustomValues(t *testing.T) {
@@ -45,6 +48,7 @@ func TestLoadCustomValues(t *testing.T) {
 		"LOG_LEVEL":        "debug",
 		"SHUTDOWN_TIMEOUT": "3s",
 		"DB_PING_TIMEOUT":  "500ms",
+		"AUTH_SESSION_TTL": "45m",
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -60,6 +64,9 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.DBPingTimeout != 500*time.Millisecond {
 		t.Errorf("DBPingTimeout = %v", cfg.DBPingTimeout)
+	}
+	if cfg.AuthSessionTTL != 45*time.Minute {
+		t.Errorf("AuthSessionTTL = %v", cfg.AuthSessionTTL)
 	}
 }
 
@@ -111,6 +118,24 @@ func TestLoadRejectsInvalidDBPingTimeout(t *testing.T) {
 			}))
 			if err == nil {
 				t.Fatalf("%q icin hata bekleniyordu", raw)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidAuthSessionTTL(t *testing.T) {
+	for _, raw := range []string{"abc", "0s", "-1s"} {
+		t.Run("AUTH_SESSION_TTL="+raw, func(t *testing.T) {
+			_, err := Load(env(map[string]string{
+				"DATABASE_URL":     "postgres://user:pass@localhost:5432/parkakil",
+				"CAMERA_API_KEY":   testCameraAPIKey,
+				"AUTH_SESSION_TTL": raw,
+			}))
+			if err == nil {
+				t.Fatalf("%q icin hata bekleniyordu", raw)
+			}
+			if !strings.Contains(err.Error(), "AUTH_SESSION_TTL") {
+				t.Errorf("hata degisken adini icermeli: %v", err)
 			}
 		})
 	}
