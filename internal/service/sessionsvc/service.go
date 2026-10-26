@@ -21,6 +21,10 @@ import (
 // gelmesi durumunda doner; API katmani bunu 409'a esleyecek.
 var ErrEventConflict = store.ErrEventConflict
 
+// ErrLotNotFound, istenen otopark kaydi yoksa doner; API katmani bunu 404'e
+// esleyecek.
+var ErrLotNotFound = store.ErrLotNotFound
+
 // errCalc, kapatma hesabinda (tariff.Calculate) olusan hatalari veritabani
 // hatalarindan ayirt etmek icin kullanilan ic sentinel hatadir.
 var errCalc = errors.New("kapatma hesabi basarisiz")
