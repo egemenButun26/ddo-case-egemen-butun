@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,8 @@ const (
 	InvoiceStatusFailed = "failed"
 	InvoiceStatusVoid   = "void"
 )
+
+var ErrProrationInvoiceClosed = errors.New("proration faturasi kapanmis")
 
 type Invoice struct {
 	ID             int64
@@ -70,6 +73,31 @@ func InsertInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
 		inv.SubscriptionID, dateText(inv.PeriodStart), dateText(inv.PeriodEnd), inv.Kind,
 		int64(inv.Amount), inv.Status, inv.Attempts, inv.NextRetryAt, inv.PaidAt,
 	).Scan(&id)
+	return id, err
+}
+
+// AddProrationInvoice, ayni abonelik/donem/kind icin var olan proration faturasinin
+// tutarina yeni tutari ekler; yoksa olusturur. UNIQUE kisiti migration degismeden
+// korunur ve art arda plan gecisi/iptal ayni donemde 23505 uretmez.
+// Yalnizca open/failed fatura birlesir; paid/void faturaya dokunulmaz ve
+// ErrProrationInvoiceClosed doner.
+func AddProrationInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
+	var id int64
+	err := q.QueryRow(ctx,
+		`INSERT INTO invoices (subscription_id, period_start, period_end, kind, amount_kurus,
+		                       status, attempts, next_retry_at, paid_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 ON CONFLICT (subscription_id, period_start, kind) DO UPDATE
+		   SET amount_kurus = invoices.amount_kurus + EXCLUDED.amount_kurus,
+		       period_end = EXCLUDED.period_end
+		   WHERE invoices.status IN ('open','failed')
+		 RETURNING id`,
+		inv.SubscriptionID, dateText(inv.PeriodStart), dateText(inv.PeriodEnd), inv.Kind,
+		int64(inv.Amount), inv.Status, inv.Attempts, inv.NextRetryAt, inv.PaidAt,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrProrationInvoiceClosed
+	}
 	return id, err
 }
 
@@ -150,6 +178,66 @@ func DueRetryInvoices(ctx context.Context, q Querier, now time.Time) ([]Invoice,
 		 ORDER BY i.next_retry_at, i.id
 		 FOR UPDATE OF i SKIP LOCKED`, now,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	invoices := []Invoice{}
+	for rows.Next() {
+		inv, err := scanInvoice(rows)
+		if err != nil {
+			return nil, err
+		}
+		invoices = append(invoices, inv)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return invoices, nil
+}
+
+type InvoiceFilter struct {
+	SubscriptionID *int64
+	Status         string
+	Plate          *string
+	OwnerUserID    *int64
+	AfterID        int64
+	Limit          int
+}
+
+func ListInvoices(ctx context.Context, q Querier, f InvoiceFilter) ([]Invoice, error) {
+	query := invoiceSelect + ` JOIN subscriptions s ON s.id = i.subscription_id WHERE TRUE`
+	args := []any{}
+	if f.SubscriptionID != nil {
+		args = append(args, *f.SubscriptionID)
+		query += ` AND i.subscription_id = $` + strconv.Itoa(len(args))
+	}
+	if f.Status != "" {
+		args = append(args, f.Status)
+		query += ` AND i.status = $` + strconv.Itoa(len(args))
+	}
+	if f.Plate != nil && f.OwnerUserID != nil {
+		args = append(args, *f.OwnerUserID)
+		ownerArg := strconv.Itoa(len(args))
+		args = append(args, *f.Plate)
+		plateArg := strconv.Itoa(len(args))
+		query += ` AND (s.user_id = $` + ownerArg + ` OR s.plate = $` + plateArg + `)`
+	} else if f.Plate != nil {
+		args = append(args, *f.Plate)
+		query += ` AND s.plate = $` + strconv.Itoa(len(args))
+	} else if f.OwnerUserID != nil {
+		args = append(args, *f.OwnerUserID)
+		query += ` AND s.user_id = $` + strconv.Itoa(len(args))
+	}
+	if f.AfterID > 0 {
+		args = append(args, f.AfterID)
+		query += ` AND i.id > $` + strconv.Itoa(len(args))
+	}
+	args = append(args, f.Limit)
+	query += ` ORDER BY i.id LIMIT $` + strconv.Itoa(len(args))
+
+	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

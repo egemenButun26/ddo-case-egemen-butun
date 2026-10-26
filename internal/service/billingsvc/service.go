@@ -55,6 +55,13 @@ func New(pool *pgxpool.Pool) (*Service, error) {
 	return &Service{pool: pool, loc: loc}, nil
 }
 
+func wrapProrationErr(err error) error {
+	if errors.Is(err, store.ErrProrationInvoiceClosed) {
+		return fmt.Errorf("proration faturasi kapanmis: %w", err)
+	}
+	return err
+}
+
 func (s *Service) monthBounds(t time.Time) (time.Time, time.Time) {
 	l := t.In(s.loc)
 	start := time.Date(l.Year(), l.Month(), 1, 0, 0, 0, 0, s.loc)
@@ -74,6 +81,10 @@ func (s *Service) dayBounds(day time.Time) (start, end, date time.Time) {
 }
 
 func (s *Service) Subscribe(ctx context.Context, plate, planCode string, start time.Time) (store.Subscription, error) {
+	return s.SubscribeForUser(ctx, plate, planCode, nil, start)
+}
+
+func (s *Service) SubscribeForUser(ctx context.Context, plate, planCode string, userID *int64, start time.Time) (store.Subscription, error) {
 	if strings.TrimSpace(plate) == "" {
 		return store.Subscription{}, ErrInvalidPlate
 	}
@@ -91,7 +102,7 @@ func (s *Service) Subscribe(ctx context.Context, plate, planCode string, start t
 		return store.Subscription{}, ErrInvalidPlan
 	}
 	ps, pe := s.monthBounds(start)
-	id, err := store.InsertSubscription(ctx, tx, plan.ID, plate, ps, pe)
+	id, err := store.InsertSubscriptionWithUser(ctx, tx, plan.ID, plate, userID, ps, pe)
 	if err != nil {
 		return store.Subscription{}, err
 	}
@@ -128,7 +139,7 @@ func (s *Service) Cancel(ctx context.Context, subID int64, at time.Time) (Cancel
 
 	result := Cancellation{SubscriptionID: sub.ID, Credit: credit}
 	if credit > 0 {
-		result.InvoiceID, err = store.InsertInvoice(ctx, tx, store.Invoice{
+		result.InvoiceID, err = store.AddProrationInvoice(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,
 			PeriodStart:    ps,
 			PeriodEnd:      pe,
@@ -137,7 +148,7 @@ func (s *Service) Cancel(ctx context.Context, subID int64, at time.Time) (Cancel
 			Status:         store.InvoiceStatusOpen,
 		})
 		if err != nil {
-			return Cancellation{}, err
+			return Cancellation{}, wrapProrationErr(err)
 		}
 	}
 	cancelledAt := at.In(s.loc)
@@ -191,7 +202,7 @@ func (s *Service) ChangePlan(ctx context.Context, subID int64, newPlanCode strin
 		Direction:      change.Direction(),
 	}
 	if change.Charge > 0 {
-		result.ChargeInvoiceID, err = store.InsertInvoice(ctx, tx, store.Invoice{
+		result.ChargeInvoiceID, err = store.AddProrationInvoice(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,
 			PeriodStart:    ps,
 			PeriodEnd:      pe,
@@ -200,11 +211,11 @@ func (s *Service) ChangePlan(ctx context.Context, subID int64, newPlanCode strin
 			Status:         store.InvoiceStatusOpen,
 		})
 		if err != nil {
-			return ChangePlanResult{}, err
+			return ChangePlanResult{}, wrapProrationErr(err)
 		}
 	}
 	if change.Credit > 0 {
-		result.CreditInvoiceID, err = store.InsertInvoice(ctx, tx, store.Invoice{
+		result.CreditInvoiceID, err = store.AddProrationInvoice(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,
 			PeriodStart:    ps,
 			PeriodEnd:      pe,
@@ -213,7 +224,7 @@ func (s *Service) ChangePlan(ctx context.Context, subID int64, newPlanCode strin
 			Status:         store.InvoiceStatusOpen,
 		})
 		if err != nil {
-			return ChangePlanResult{}, err
+			return ChangePlanResult{}, wrapProrationErr(err)
 		}
 	}
 	if err := store.SetSubscriptionPlan(ctx, tx, sub.ID, plan.ID); err != nil {
@@ -251,6 +262,8 @@ func (s *Service) RunPeriodEnd(ctx context.Context, periodStart time.Time) (int,
 		return 0, err
 	}
 	created := 0
+	// Askıdayken kaçırılan birden çok dönem tek tek faturalanmaz; yeniden
+	// active olunca bu çalıştırmanın dönemi (yalnız sonraki dönem) faturalanır.
 	for _, sub := range subs {
 		inserted, err := store.InsertInvoiceIfAbsent(ctx, tx, store.Invoice{
 			SubscriptionID: sub.ID,

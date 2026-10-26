@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"parkakil/internal/auth"
+	"parkakil/internal/service/billingsvc"
 	"parkakil/internal/service/occupancysvc"
 	"parkakil/internal/service/paymentsvc"
 	"parkakil/internal/store"
@@ -30,6 +31,7 @@ type Deps struct {
 	ProviderURL   string
 	WebhookSecret string
 	PublicAPIURL  string
+	Billing       *billingsvc.Service
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -75,6 +77,7 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	}
 
 	mountPaymentRoutes(r, deps)
+	mountBillingRoutes(r, deps)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "not_found", "not found")

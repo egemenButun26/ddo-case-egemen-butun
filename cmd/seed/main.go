@@ -105,6 +105,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, password string) error {
 			return fmt.Errorf("seed: otopark %s okunamadi: %w", l.Code, err)
 		}
 
+		if _, err := store.InsertPlan(ctx, pool, planKodu(l.Code), lotID, demoPlanPrice); err != nil &&
+			!errors.Is(err, store.ErrPlanExists) {
+			return fmt.Errorf("seed: plan %s: %w", planKodu(l.Code), err)
+		}
+
 		versionID := "standart-" + strings.ToLower(l.Code)
 		if _, err := store.GetTariffVersion(ctx, pool, versionID); err == nil {
 			continue
@@ -116,6 +121,48 @@ func seed(ctx context.Context, pool *pgxpool.Pool, password string) error {
 		}
 	}
 
+	if err := seedDemoSubscription(ctx, pool, konum); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+const demoPlanPrice tariff.Kurus = 150000
+
+func planKodu(lotKodu string) string {
+	return lotKodu + "-AYLIK"
+}
+
+func seedDemoSubscription(ctx context.Context, pool *pgxpool.Pool, konum *time.Location) error {
+	user, err := store.GetUserByEmail(ctx, pool, "surucu@parkakil.test")
+	if err != nil {
+		return fmt.Errorf("seed: surucu kullanici: %w", err)
+	}
+	if user.Plate == nil || *user.Plate == "" {
+		return errors.New("seed: surucu plakasi bos")
+	}
+	var aktif int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM subscriptions WHERE plate = $1 AND status IN ('active','past_due')`,
+		*user.Plate,
+	).Scan(&aktif); err != nil {
+		return fmt.Errorf("seed: abonelik okunamadi: %w", err)
+	}
+	if aktif > 0 {
+		return nil
+	}
+	plan, err := store.GetPlanByCode(ctx, pool, planKodu("KADIKOY"))
+	if err != nil {
+		return fmt.Errorf("seed: KADIKOY plani: %w", err)
+	}
+	now := time.Now().In(konum)
+	ps := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, konum)
+	pe := ps.AddDate(0, 1, 0)
+	userID := user.ID
+	if _, err := store.InsertSubscriptionWithUser(ctx, pool, plan.ID, *user.Plate, &userID, ps, pe); err != nil {
+		return fmt.Errorf("seed: demo abonelik: %w", err)
+	}
 	return nil
 }
 

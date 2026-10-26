@@ -24,6 +24,7 @@ type Config struct {
 	ProviderTimeout            time.Duration
 	PaymentExpireInterval      time.Duration
 	PublicAPIURL               string
+	DunningInterval            time.Duration
 }
 
 const (
@@ -49,6 +50,7 @@ func Load(getenv func(string) string) (Config, error) {
 		ProviderTimeout:            defaultProviderTimeout,
 		PaymentExpireInterval:      defaultPaymentExpireInterval,
 		PublicAPIURL:               getenv("PUBLIC_API_URL"),
+		DunningInterval:            time.Minute,
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -111,6 +113,11 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.PaymentExpireInterval, err = parsePositiveDuration("PAYMENT_EXPIRE_INTERVAL", getenv("PAYMENT_EXPIRE_INTERVAL"), cfg.PaymentExpireInterval)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DunningInterval, err = parsePositiveDuration("DUNNING_INTERVAL", getenv("DUNNING_INTERVAL"), cfg.DunningInterval)
 	if err != nil {
 		return Config{}, err
 	}
