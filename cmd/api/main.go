@@ -16,7 +16,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"parkakil/internal/config"
+	"parkakil/internal/domain/session"
 	"parkakil/internal/httpx"
+	"parkakil/internal/service/sessionsvc"
 )
 
 func main() {
@@ -45,7 +47,14 @@ func run() int {
 		return 1
 	}
 
-	handler := httpx.NewRouter(logger, pool, cfg.DBPingTimeout)
+	svc, err := sessionsvc.New(pool, session.DefaultConfig)
+	if err != nil {
+		logger.Error("oturum servisi olusturulamadi", "hata", err)
+		pool.Close()
+		return 1
+	}
+
+	handler := httpx.NewRouter(logger, pool, cfg.DBPingTimeout, svc)
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
