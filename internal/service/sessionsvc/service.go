@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"parkakil/internal/domain/occupancy"
+	"parkakil/internal/domain/payment"
 	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/domain/tariff"
@@ -363,7 +364,38 @@ func (s *Service) close(ctx context.Context, tx pgx.Tx, sessionID, exitEventID i
 	if err := store.CloseSession(ctx, tx, sess.ID, exitEventID, exitedAt, q.Total, quote); err != nil {
 		return 0, err
 	}
+	if err := insertExitDebt(ctx, tx, sess, q.Total); err != nil {
+		return 0, err
+	}
 	return q.Total, nil
+}
+
+// insertExitDebt, oturum kapanirken basarili odemelerin oturum tutarini
+// karsilamadigi farki borc olarak yazar. Ayni oturum ikinci kez kapanamaz;
+// debts_session_uniq yine de tek kaydi garanti eder.
+func insertExitDebt(ctx context.Context, tx pgx.Tx, sess store.StoredSession, total tariff.Kurus) error {
+	if total <= 0 {
+		return nil
+	}
+	items, err := store.ListSessionPayments(ctx, tx, sess.ID)
+	if err != nil {
+		return err
+	}
+	odenen := make([]payment.Payment, 0, len(items))
+	for _, it := range items {
+		odenen = append(odenen, it.Payment)
+	}
+	st, err := payment.Settle(total, odenen)
+	if err != nil {
+		return err
+	}
+	if st.Due == 0 {
+		return nil
+	}
+	if _, err := store.InsertDebt(ctx, tx, sess.ID, sess.LotID, sess.Plate, st.Due); err != nil {
+		return err
+	}
+	return nil
 }
 
 func reviewIDForEvent(ctx context.Context, tx pgx.Tx, eventID int64) (int64, error) {

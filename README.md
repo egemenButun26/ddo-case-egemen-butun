@@ -25,6 +25,15 @@ Kamera olayları web üzerinden `POST /api/camera-events`, API portu üzerinden 
 İstekte `X-Camera-Key` başlığı zorunludur; eksik ya da yanlışsa `401` döner.
 Anahtar `.env` dosyasındaki `CAMERA_API_KEY` değeridir; gerçek anahtarı bu dosyaya yazmayın.
 
+## Saha cihazı uçları
+
+Kiosk (`GET /kiosk/quote`, `POST /kiosk/payments`) ve kapı (`GET /gate/decision`) uçları da
+saha cihazı anahtarı olarak aynı `X-Camera-Key` başlığını kullanır. Anahtar `.env` dosyasındaki
+`CAMERA_API_KEY` değeridir; eksik ya da yanlışsa `401` döner.
+
+Ödeme sağlayıcı simülatörü ayrı bir `providersim` servisi olarak çalışır; bildirimleri
+`PROVIDER_WEBHOOK_SECRET` ile imzalar ve `api` servisine `POST /provider/notifications` ile gönderir.
+
 ## Port çakışması
 
 Host'ta 8080 ya da 3000 doluysa `.env` içinde portları değiştirin:

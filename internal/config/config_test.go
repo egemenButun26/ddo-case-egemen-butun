@@ -7,11 +7,24 @@ import (
 	"time"
 )
 
-const testCameraAPIKey = "test-kamera-anahtari-0123456789abcdef"
+const (
+	testCameraAPIKey     = "test-kamera-anahtari-0123456789abcdef"
+	testProviderSecret   = "test-provider-secret-0123456789"
+	testProviderURL      = "http://saglayici:9999"
+	testPublicAPIURL     = "http://api-test:8080"
+	testExpireInterval   = 7 * time.Second
+	testProviderTimeoutS = "45s"
+)
 
 func env(values map[string]string) func(string) string {
 	return func(key string) string {
-		return values[key]
+		if v, ok := values[key]; ok {
+			return v
+		}
+		if key == "PROVIDER_WEBHOOK_SECRET" {
+			return testProviderSecret
+		}
+		return ""
 	}
 }
 
@@ -38,17 +51,33 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AuthSessionTTL != 12*time.Hour {
 		t.Errorf("AuthSessionTTL = %v, beklenen 12h", cfg.AuthSessionTTL)
 	}
+	if cfg.ProviderURL != defaultProviderURL {
+		t.Errorf("ProviderURL = %q, beklenen %q", cfg.ProviderURL, defaultProviderURL)
+	}
+	if cfg.ProviderTimeout != defaultProviderTimeout {
+		t.Errorf("ProviderTimeout = %v, beklenen %v", cfg.ProviderTimeout, defaultProviderTimeout)
+	}
+	if cfg.PaymentExpireInterval != defaultPaymentExpireInterval {
+		t.Errorf("PaymentExpireInterval = %v, beklenen %v", cfg.PaymentExpireInterval, defaultPaymentExpireInterval)
+	}
+	if cfg.PublicAPIURL != defaultPublicAPIURL {
+		t.Errorf("PublicAPIURL = %q, beklenen %q", cfg.PublicAPIURL, defaultPublicAPIURL)
+	}
 }
 
 func TestLoadCustomValues(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"DATABASE_URL":     "postgres://user:pass@localhost:5432/parkakil",
-		"CAMERA_API_KEY":   testCameraAPIKey,
-		"HTTP_ADDR":        "127.0.0.1:9090",
-		"LOG_LEVEL":        "debug",
-		"SHUTDOWN_TIMEOUT": "3s",
-		"DB_PING_TIMEOUT":  "500ms",
-		"AUTH_SESSION_TTL": "45m",
+		"DATABASE_URL":            "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY":          testCameraAPIKey,
+		"HTTP_ADDR":               "127.0.0.1:9090",
+		"LOG_LEVEL":               "debug",
+		"SHUTDOWN_TIMEOUT":        "3s",
+		"DB_PING_TIMEOUT":         "500ms",
+		"AUTH_SESSION_TTL":        "45m",
+		"PROVIDER_URL":            testProviderURL,
+		"PROVIDER_TIMEOUT":        testProviderTimeoutS,
+		"PAYMENT_EXPIRE_INTERVAL": "7s",
+		"PUBLIC_API_URL":          testPublicAPIURL,
 	}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -67,6 +96,70 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.AuthSessionTTL != 45*time.Minute {
 		t.Errorf("AuthSessionTTL = %v", cfg.AuthSessionTTL)
+	}
+	if cfg.ProviderURL != testProviderURL {
+		t.Errorf("ProviderURL = %q", cfg.ProviderURL)
+	}
+	if cfg.ProviderTimeout != 45*time.Second {
+		t.Errorf("ProviderTimeout = %v", cfg.ProviderTimeout)
+	}
+	if cfg.PaymentExpireInterval != testExpireInterval {
+		t.Errorf("PaymentExpireInterval = %v", cfg.PaymentExpireInterval)
+	}
+	if cfg.PublicAPIURL != testPublicAPIURL {
+		t.Errorf("PublicAPIURL = %q", cfg.PublicAPIURL)
+	}
+}
+
+func TestLoadRequiresProviderWebhookSecret(t *testing.T) {
+	for _, deger := range []string{"", "kisa"} {
+		_, err := Load(env(map[string]string{
+			"DATABASE_URL":            "postgres://user:pass@localhost:5432/parkakil",
+			"CAMERA_API_KEY":          testCameraAPIKey,
+			"PROVIDER_WEBHOOK_SECRET": deger,
+		}))
+		if err == nil {
+			t.Fatalf("%q icin hata bekleniyordu", deger)
+		}
+		if !strings.Contains(err.Error(), "PROVIDER_WEBHOOK_SECRET") {
+			t.Errorf("hata degisken adini icermeli: %v", err)
+		}
+	}
+}
+
+func TestLoadRejectsInvalidProviderDurations(t *testing.T) {
+	for _, ad := range []string{"PROVIDER_TIMEOUT", "PAYMENT_EXPIRE_INTERVAL"} {
+		for _, raw := range []string{"abc", "0s", "-1s"} {
+			t.Run(ad+"="+raw, func(t *testing.T) {
+				_, err := Load(env(map[string]string{
+					"DATABASE_URL":   "postgres://user:pass@localhost:5432/parkakil",
+					"CAMERA_API_KEY": testCameraAPIKey,
+					ad:               raw,
+				}))
+				if err == nil {
+					t.Fatalf("%q icin hata bekleniyordu", raw)
+				}
+				if !strings.Contains(err.Error(), ad) {
+					t.Errorf("hata degisken adini icermeli: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestErrorHidesProviderSecret(t *testing.T) {
+	gizli := "gizli-saglayici-sirri-0123456789"
+	_, err := Load(env(map[string]string{
+		"DATABASE_URL":            "postgres://user:pass@localhost:5432/parkakil",
+		"CAMERA_API_KEY":          testCameraAPIKey,
+		"PROVIDER_WEBHOOK_SECRET": gizli,
+		"PROVIDER_TIMEOUT":        "abc",
+	}))
+	if err == nil {
+		t.Fatal("hata bekleniyordu")
+	}
+	if strings.Contains(err.Error(), gizli) {
+		t.Errorf("hata mesaji sirri icermemeli: %v", err)
 	}
 }
 

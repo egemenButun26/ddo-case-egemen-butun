@@ -11,17 +11,22 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"parkakil/internal/auth"
+	"parkakil/internal/service/paymentsvc"
 	"parkakil/internal/store"
 )
 
 type Deps struct {
-	Logger      *slog.Logger
-	Pinger      Pinger
-	PingTimeout time.Duration
-	Events      EventHandler
-	CameraKey   string
-	DB          store.Querier
-	SessionTTL  time.Duration
+	Logger        *slog.Logger
+	Pinger        Pinger
+	PingTimeout   time.Duration
+	Events        EventHandler
+	CameraKey     string
+	DB            store.Querier
+	SessionTTL    time.Duration
+	Payments      *paymentsvc.Service
+	ProviderURL   string
+	WebhookSecret string
+	PublicAPIURL  string
 }
 
 func NewRouter(deps Deps) http.Handler {
@@ -60,6 +65,8 @@ func newRouter(deps Deps, extra func(chi.Router)) http.Handler {
 	if extra != nil {
 		extra(r)
 	}
+
+	mountPaymentRoutes(r, deps)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, "not_found", "not found")

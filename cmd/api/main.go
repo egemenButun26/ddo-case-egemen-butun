@@ -16,8 +16,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"parkakil/internal/config"
+	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/httpx"
+	"parkakil/internal/service/paymentsvc"
 	"parkakil/internal/service/sessionsvc"
 )
 
@@ -54,14 +56,32 @@ func run() int {
 		return 1
 	}
 
+	payments, err := paymentsvc.New(pool, paymentsvc.Config{
+		ProviderTimeout: cfg.ProviderTimeout,
+		Thresholds:      plate.DefaultThresholds,
+	})
+	if err != nil {
+		logger.Error("odeme servisi olusturulamadi", "hata", err)
+		pool.Close()
+		return 1
+	}
+
+	isCtx, isIptal := context.WithCancel(context.Background())
+	defer isIptal()
+	go paymentExpireLoop(isCtx, logger, payments, cfg.PaymentExpireInterval)
+
 	handler := httpx.NewRouter(httpx.Deps{
-		Logger:      logger,
-		Pinger:      pool,
-		PingTimeout: cfg.DBPingTimeout,
-		Events:      svc,
-		CameraKey:   cfg.CameraAPIKey,
-		DB:          pool,
-		SessionTTL:  cfg.AuthSessionTTL,
+		Logger:        logger,
+		Pinger:        pool,
+		PingTimeout:   cfg.DBPingTimeout,
+		Events:        svc,
+		CameraKey:     cfg.CameraAPIKey,
+		DB:            pool,
+		SessionTTL:    cfg.AuthSessionTTL,
+		Payments:      payments,
+		ProviderURL:   cfg.ProviderURL,
+		WebhookSecret: cfg.ProviderWebhookSecret,
+		PublicAPIURL:  cfg.PublicAPIURL,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -86,6 +106,7 @@ func run() int {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("sunucu hatasi", "hata", err)
+			isIptal()
 			pool.Close()
 			return 1
 		}
@@ -102,9 +123,34 @@ func run() int {
 		}
 	}
 
+	isIptal()
 	pool.Close()
 	logger.Info("kapandi")
 	return 0
+}
+
+// paymentExpireLoop, zaman asimi dolan bekleyen odemeleri duzenli araliklarla
+// kapatir. Baglam iptal edilince durur.
+func paymentExpireLoop(ctx context.Context, logger *slog.Logger, svc *paymentsvc.Service, aralik time.Duration) {
+	ticker := time.NewTicker(aralik)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			iscCtx, iptal := context.WithTimeout(ctx, 10*time.Second)
+			n, err := svc.ExpirePending(iscCtx, time.Now().UTC())
+			iptal()
+			if err != nil {
+				logger.Error("bekleyen odemeler zaman asimina ugratilamadi", "hata", err)
+				continue
+			}
+			if n > 0 {
+				logger.Info("bekleyen odemeler zaman asimina ugratildi", "adet", n)
+			}
+		}
+	}
 }
 
 func runHealthcheck(cfg config.Config) int {

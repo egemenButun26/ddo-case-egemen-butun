@@ -734,7 +734,7 @@ func TestExpirePendingConcurrent(t *testing.T) {
 func TestDecideGate(t *testing.T) {
 	o := yeniOrtam(t, 15)
 	t0 := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
-	sid := o.oturum(t, "34ABC34", t0)
+	sid := o.oturum(t, "34DGT40", t0)
 
 	d, got, err := o.svc.DecideGate(o.ctx, o.lotID, "34ZZZ99", t0.Add(time.Hour))
 	if err != nil {
@@ -744,7 +744,7 @@ func TestDecideGate(t *testing.T) {
 		t.Fatalf("bilinmeyen plaka karari beklenenden farkli: %+v (oturum %d)", d, got)
 	}
 
-	d, got, err = o.svc.DecideGate(o.ctx, o.lotID, "34ABC34", t0.Add(time.Hour))
+	d, got, err = o.svc.DecideGate(o.ctx, o.lotID, "34DGT40", t0.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("odeme gerekli karari: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestDecideGate(t *testing.T) {
 	}
 
 	o.odemeEkle(t, sid, t0.Add(time.Hour), 500, payment.StatusSucceeded)
-	d, _, err = o.svc.DecideGate(o.ctx, o.lotID, "34ABC34", t0.Add(time.Hour))
+	d, _, err = o.svc.DecideGate(o.ctx, o.lotID, "34DGT40", t0.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("odendi karari: %v", err)
 	}
@@ -761,7 +761,7 @@ func TestDecideGate(t *testing.T) {
 		t.Fatalf("odendi karari beklenenden farkli: %+v", d)
 	}
 
-	d, _, err = o.svc.DecideGate(o.ctx, o.lotID, "34ABC34", t0.Add(time.Hour+time.Minute))
+	d, _, err = o.svc.DecideGate(o.ctx, o.lotID, "34DGT40", t0.Add(time.Hour+time.Minute))
 	if err != nil {
 		t.Fatalf("izin karari: %v", err)
 	}
@@ -769,7 +769,7 @@ func TestDecideGate(t *testing.T) {
 		t.Fatalf("izin karari beklenenden farkli: %+v", d)
 	}
 
-	d, _, err = o.svc.DecideGate(o.ctx, o.lotID, "34ABC34", t0.Add(time.Hour+16*time.Minute))
+	d, _, err = o.svc.DecideGate(o.ctx, o.lotID, "34DGT40", t0.Add(time.Hour+16*time.Minute))
 	if err != nil {
 		t.Fatalf("izin doldu karari: %v", err)
 	}
