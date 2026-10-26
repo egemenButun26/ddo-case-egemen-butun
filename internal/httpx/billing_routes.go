@@ -768,6 +768,9 @@ func writeBillingError(deps Deps, w http.ResponseWriter, r *http.Request, err er
 		WriteError(w, http.StatusConflict, "subscription_cancelled", "abonelik iptal edilmis")
 	case errors.Is(err, store.ErrInvoiceAlreadyPaid):
 		WriteError(w, http.StatusConflict, "invoice_paid", "fatura zaten odendi")
+	case errors.Is(err, store.ErrProrationInvoiceClosed):
+		WriteError(w, http.StatusConflict, "proration_invoice_closed",
+			"bu donem icin odenmis gecis faturasi var; degisiklik sonraki doneme yapilmali")
 	case errors.Is(err, billingsvc.ErrSamePlan):
 		WriteError(w, http.StatusConflict, "same_plan", "abonelik zaten bu planda")
 	case errors.Is(err, billingsvc.ErrInvalidPlan),

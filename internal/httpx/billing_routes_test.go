@@ -425,8 +425,10 @@ func TestT5HttpChangePlan(t *testing.T) {
 	otherPlate := t5Plate(t, "yabanci")
 	driver := t5User(t, pool, auth.RoleDriver, &plate)
 	other := t5User(t, pool, auth.RoleDriver, &otherPlate)
+	accountant := t5User(t, pool, auth.RoleAccountant, nil)
 	driverToken := t5Login(t, h, driver)
 	otherToken := t5Login(t, h, other)
+	accountantToken := t5Login(t, h, accountant)
 	ucuz := t5Plan(t, pool, 300000)
 	pahali := t5Plan(t, pool, 600000)
 	orta := t5Plan(t, pool, 400000)
@@ -471,6 +473,29 @@ func TestT5HttpChangePlan(t *testing.T) {
 		`{"plan_code":"yok-plan"}`, driverToken)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("olmayan plan durum = %d, beklenen 404", rec.Code)
+	}
+
+	once, err := store.GetInvoice(context.Background(), pool, chargeID)
+	if err != nil {
+		t.Fatalf("ucret faturasi okunamadi: %v", err)
+	}
+	rec = t5Request(t, h, http.MethodPost, fmt.Sprintf("/invoices/%d/payment-attempts", chargeID),
+		`{"success":true}`, accountantToken)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("gecis faturasi odeme durum = %d; govde: %s", rec.Code, rec.Body.String())
+	}
+	rec = t5Request(t, h, http.MethodPost, fmt.Sprintf("/subscriptions/%d/change-plan", sub.ID),
+		fmt.Sprintf(`{"plan_code":%q}`, pahali), driverToken)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("odendi proration gecisi durum = %d, beklenen 409; govde: %s", rec.Code, rec.Body.String())
+	}
+	assertErrorBody(t, rec, "proration_invoice_closed")
+	sonra, err := store.GetInvoice(context.Background(), pool, chargeID)
+	if err != nil {
+		t.Fatalf("ucret faturasi okunamadi: %v", err)
+	}
+	if sonra.Amount != once.Amount || sonra.Status != store.InvoiceStatusPaid {
+		t.Fatalf("odendi fatura degisti: once=%+v sonra=%+v", once, sonra)
 	}
 
 	guncel, err := store.GetSubscription(context.Background(), pool, sub.ID)

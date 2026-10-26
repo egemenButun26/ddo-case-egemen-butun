@@ -605,6 +605,92 @@ func TestChangePlanTwiceSamePeriod(t *testing.T) {
 	}
 }
 
+func TestChangePlanPaidProrationClosed(t *testing.T) {
+	pool, svc := yeniServis(t)
+	ctx := context.Background()
+	ucuz := planOlustur(t, pool, 3000)
+	pahali := planOlustur(t, pool, 6000)
+	enPahali := planOlustur(t, pool, 9000)
+
+	sub, err := svc.Subscribe(ctx, benzersiz("34CLS"), ucuz, an(t, "2026-12-01 00:00:00"))
+	if err != nil {
+		t.Fatalf("abonelik acilamadi: %v", err)
+	}
+	ilk, err := svc.ChangePlan(ctx, sub.ID, pahali, an(t, "2026-12-10 00:00:00"))
+	if err != nil {
+		t.Fatalf("ilk plan gecisi basarisiz: %v", err)
+	}
+	if _, err := svc.RecordPaymentAttempt(ctx, ilk.ChargeInvoiceID, true, an(t, "2026-12-11 00:00:00")); err != nil {
+		t.Fatalf("gecis faturasi odenemedi: %v", err)
+	}
+	odenen, err := store.GetInvoice(ctx, pool, ilk.ChargeInvoiceID)
+	if err != nil {
+		t.Fatalf("fatura okunamadi: %v", err)
+	}
+	if odenen.Status != store.InvoiceStatusPaid {
+		t.Fatalf("fatura durumu = %q, beklenen paid", odenen.Status)
+	}
+	kredi, err := store.GetInvoice(ctx, pool, ilk.CreditInvoiceID)
+	if err != nil {
+		t.Fatalf("kredi faturasi okunamadi: %v", err)
+	}
+	odenenTutar, krediTutar := odenen.Amount, kredi.Amount
+
+	if _, err := svc.ChangePlan(ctx, sub.ID, enPahali, an(t, "2026-12-12 00:00:00")); !errors.Is(err, store.ErrProrationInvoiceClosed) {
+		t.Fatalf("odendi proration hatasi = %v, beklenen ErrProrationInvoiceClosed", err)
+	}
+	guncel, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if guncel.PlanCode != pahali || guncel.MonthlyPrice != 6000 {
+		t.Fatalf("hata sonrasi abonelik plani degisti: %+v", guncel)
+	}
+	odenen, err = store.GetInvoice(ctx, pool, ilk.ChargeInvoiceID)
+	if err != nil {
+		t.Fatalf("fatura okunamadi: %v", err)
+	}
+	if odenen.Amount != odenenTutar || odenen.Status != store.InvoiceStatusPaid {
+		t.Fatalf("odendi fatura tutari/durumu degisti: %+v", odenen)
+	}
+	kredi, err = store.GetInvoice(ctx, pool, ilk.CreditInvoiceID)
+	if err != nil {
+		t.Fatalf("kredi faturasi okunamadi: %v", err)
+	}
+	if kredi.Amount != krediTutar || kredi.Status != store.InvoiceStatusOpen {
+		t.Fatalf("islem geri alinmadi, kredi faturasi degisti: %+v", kredi)
+	}
+}
+
+func TestCancelPaidProrationClosed(t *testing.T) {
+	pool, svc := yeniServis(t)
+	ctx := context.Background()
+	ucuz := planOlustur(t, pool, 3000)
+	pahali := planOlustur(t, pool, 6000)
+
+	sub, err := svc.Subscribe(ctx, benzersiz("34CLC"), ucuz, an(t, "2026-12-01 00:00:00"))
+	if err != nil {
+		t.Fatalf("abonelik acilamadi: %v", err)
+	}
+	gecis, err := svc.ChangePlan(ctx, sub.ID, pahali, an(t, "2026-12-10 00:00:00"))
+	if err != nil {
+		t.Fatalf("plan gecisi basarisiz: %v", err)
+	}
+	if _, err := svc.RecordPaymentAttempt(ctx, gecis.CreditInvoiceID, true, an(t, "2026-12-11 00:00:00")); err != nil {
+		t.Fatalf("kredi faturasi odenemedi: %v", err)
+	}
+	if _, err := svc.Cancel(ctx, sub.ID, an(t, "2026-12-12 00:00:00")); !errors.Is(err, store.ErrProrationInvoiceClosed) {
+		t.Fatalf("odendi kredi faturasi iptali = %v, beklenen ErrProrationInvoiceClosed", err)
+	}
+	guncel, err := store.GetSubscription(ctx, pool, sub.ID)
+	if err != nil {
+		t.Fatalf("abonelik okunamadi: %v", err)
+	}
+	if guncel.Status != billing.StatusActive || guncel.PlanCode != pahali {
+		t.Fatalf("hata sonrasi abonelik degisti: %+v", guncel)
+	}
+}
+
 func TestRunPeriodEndPastDue(t *testing.T) {
 	pool, svc := yeniServis(t)
 	ctx := context.Background()

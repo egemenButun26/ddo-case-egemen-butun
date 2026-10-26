@@ -25,6 +25,8 @@ const (
 	InvoiceStatusVoid   = "void"
 )
 
+var ErrProrationInvoiceClosed = errors.New("proration faturasi kapanmis")
+
 type Invoice struct {
 	ID             int64
 	SubscriptionID int64
@@ -77,6 +79,8 @@ func InsertInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
 // AddProrationInvoice, ayni abonelik/donem/kind icin var olan proration faturasinin
 // tutarina yeni tutari ekler; yoksa olusturur. UNIQUE kisiti migration degismeden
 // korunur ve art arda plan gecisi/iptal ayni donemde 23505 uretmez.
+// Yalnizca open/failed fatura birlesir; paid/void faturaya dokunulmaz ve
+// ErrProrationInvoiceClosed doner.
 func AddProrationInvoice(ctx context.Context, q Querier, inv Invoice) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
@@ -86,10 +90,14 @@ func AddProrationInvoice(ctx context.Context, q Querier, inv Invoice) (int64, er
 		 ON CONFLICT (subscription_id, period_start, kind) DO UPDATE
 		   SET amount_kurus = invoices.amount_kurus + EXCLUDED.amount_kurus,
 		       period_end = EXCLUDED.period_end
+		   WHERE invoices.status IN ('open','failed')
 		 RETURNING id`,
 		inv.SubscriptionID, dateText(inv.PeriodStart), dateText(inv.PeriodEnd), inv.Kind,
 		int64(inv.Amount), inv.Status, inv.Attempts, inv.NextRetryAt, inv.PaidAt,
 	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrProrationInvoiceClosed
+	}
 	return id, err
 }
 

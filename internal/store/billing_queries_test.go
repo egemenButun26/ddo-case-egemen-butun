@@ -71,6 +71,81 @@ func TestAddProrationInvoiceSamePeriod(t *testing.T) {
 	}
 }
 
+func TestAddProrationInvoiceClosed(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	lotID := testdb.NewLot(t, pool, 100)
+	planID, err := store.InsertPlan(ctx, pool, benzersiz("plan"), lotID, 5000)
+	if err != nil {
+		t.Fatalf("plan eklenemedi: %v", err)
+	}
+	subID, err := store.InsertSubscription(ctx, pool, planID, benzersiz("34CLS"), tarih(2026, 4, 1), tarih(2026, 5, 1))
+	if err != nil {
+		t.Fatalf("abonelik eklenemedi: %v", err)
+	}
+	paidAt := tarih(2026, 4, 10)
+	paidInv := store.Invoice{
+		SubscriptionID: subID,
+		PeriodStart:    tarih(2026, 4, 1),
+		PeriodEnd:      tarih(2026, 5, 1),
+		Kind:           store.InvoiceKindProrationCharge,
+		Amount:         1000,
+		Status:         store.InvoiceStatusPaid,
+		PaidAt:         &paidAt,
+	}
+	paidID, err := store.InsertInvoice(ctx, pool, paidInv)
+	if err != nil {
+		t.Fatalf("odendi fatura eklenemedi: %v", err)
+	}
+	if _, err := store.AddProrationInvoice(ctx, pool, store.Invoice{
+		SubscriptionID: subID,
+		PeriodStart:    tarih(2026, 4, 1),
+		PeriodEnd:      tarih(2026, 5, 1),
+		Kind:           store.InvoiceKindProrationCharge,
+		Amount:         500,
+		Status:         store.InvoiceStatusOpen,
+	}); !errors.Is(err, store.ErrProrationInvoiceClosed) {
+		t.Fatalf("odendi fatura hatasi = %v, beklenen ErrProrationInvoiceClosed", err)
+	}
+	saved, err := store.GetInvoice(ctx, pool, paidID)
+	if err != nil {
+		t.Fatalf("fatura okunamadi: %v", err)
+	}
+	if saved.Amount != 1000 || saved.Status != store.InvoiceStatusPaid {
+		t.Fatalf("odendi fatura degisti: %+v", saved)
+	}
+
+	voidInv := store.Invoice{
+		SubscriptionID: subID,
+		PeriodStart:    tarih(2026, 4, 1),
+		PeriodEnd:      tarih(2026, 5, 1),
+		Kind:           store.InvoiceKindProrationCredit,
+		Amount:         700,
+		Status:         store.InvoiceStatusVoid,
+	}
+	voidID, err := store.InsertInvoice(ctx, pool, voidInv)
+	if err != nil {
+		t.Fatalf("void fatura eklenemedi: %v", err)
+	}
+	if _, err := store.AddProrationInvoice(ctx, pool, store.Invoice{
+		SubscriptionID: subID,
+		PeriodStart:    tarih(2026, 4, 1),
+		PeriodEnd:      tarih(2026, 5, 1),
+		Kind:           store.InvoiceKindProrationCredit,
+		Amount:         300,
+		Status:         store.InvoiceStatusOpen,
+	}); !errors.Is(err, store.ErrProrationInvoiceClosed) {
+		t.Fatalf("void fatura hatasi = %v, beklenen ErrProrationInvoiceClosed", err)
+	}
+	saved, err = store.GetInvoice(ctx, pool, voidID)
+	if err != nil {
+		t.Fatalf("fatura okunamadi: %v", err)
+	}
+	if saved.Amount != 700 || saved.Status != store.InvoiceStatusVoid {
+		t.Fatalf("void fatura degisti: %+v", saved)
+	}
+}
+
 func TestListSubscriptionsFilter(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
