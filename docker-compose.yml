@@ -49,6 +49,7 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-parkakil}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD zorunlu}@postgres:5432/${POSTGRES_DB:-parkakil}?sslmode=disable
       CAMERA_API_KEY: ${CAMERA_API_KEY:?CAMERA_API_KEY zorunlu}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       HTTP_ADDR: ":8080"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10s}

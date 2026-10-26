@@ -11,6 +11,7 @@ type Config struct {
 	DatabaseURL     string
 	HTTPAddr        string
 	CameraAPIKey    string
+	MetricsToken    string
 	LogLevel        slog.Level
 	ShutdownTimeout time.Duration
 	DBPingTimeout   time.Duration
@@ -22,6 +23,7 @@ func Load(getenv func(string) string) (Config, error) {
 		DatabaseURL:     getenv("DATABASE_URL"),
 		HTTPAddr:        getenv("HTTP_ADDR"),
 		CameraAPIKey:    getenv("CAMERA_API_KEY"),
+		MetricsToken:    getenv("METRICS_TOKEN"),
 		ShutdownTimeout: 10 * time.Second,
 		DBPingTimeout:   2 * time.Second,
 		AuthSessionTTL:  12 * time.Hour,
@@ -35,6 +37,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if len(cfg.CameraAPIKey) < 32 {
 		return Config{}, errors.New("config: CAMERA_API_KEY en az 32 karakter olmali")
+	}
+	if cfg.MetricsToken != "" && len(cfg.MetricsToken) < 16 {
+		return Config{}, errors.New("config: METRICS_TOKEN en az 16 karakter olmali")
 	}
 	if cfg.HTTPAddr == "" {
 		cfg.HTTPAddr = ":8080"
