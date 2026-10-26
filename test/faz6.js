@@ -10,7 +10,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 // Sabit listeler: sonraki brifler yeni paketleri/testleri buraya ekleyecek.
-const PAKETLER = ["./internal/store/...", "./internal/service/..."];
+const PAKETLER = ["./internal/store/...", "./internal/service/...", "./internal/domain/session/..."];
 const BEKLENEN_TESTLER = [
   "TestMigrationDownUp",
   "TestOpenSessionUniquePerPlate",

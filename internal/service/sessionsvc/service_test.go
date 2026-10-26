@@ -959,6 +959,31 @@ func TestOlayCakismasiFarkliIcerik(t *testing.T) {
 		t.Fatalf("farkli plaka hatasi = %v, beklenen ErrEventConflict", err)
 	}
 
+	yanlisZaman := ev
+	yanlisZaman.CapturedAt = at.Add(1 * time.Minute)
+	if _, err := svc.HandleEvent(context.Background(), yanlisZaman); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("farkli captured_at hatasi = %v, beklenen ErrEventConflict", err)
+	}
+
+	yanlisYonTek := ev
+	yanlisYonTek.Direction = session.Exit
+	if _, err := svc.HandleEvent(context.Background(), yanlisYonTek); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("farkli direction hatasi = %v, beklenen ErrEventConflict", err)
+	}
+
+	lotB := yeniLotTarifeli(t, pool)
+	yanlisLot := ev
+	yanlisLot.LotID = lotB
+	if _, err := svc.HandleEvent(context.Background(), yanlisLot); !errors.Is(err, sessionsvc.ErrEventConflict) {
+		t.Fatalf("farkli lot_id hatasi = %v, beklenen ErrEventConflict", err)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM plate_events WHERE lot_id = $1`, lotB); n != 0 {
+		t.Fatalf("lot B olay sayisi = %d, beklenen 0", n)
+	}
+	if n := say(t, pool, `SELECT count(*) FROM sessions WHERE lot_id = $1`, lotB); n != 0 {
+		t.Fatalf("lot B oturum sayisi = %d, beklenen 0", n)
+	}
+
 	ayni, err := svc.HandleEvent(context.Background(), ev)
 	if err != nil {
 		t.Fatalf("ayni icerik islenemedi: %v", err)
