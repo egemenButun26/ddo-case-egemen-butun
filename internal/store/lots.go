@@ -20,15 +20,16 @@ func CreateLot(ctx context.Context, q Querier, code, name string, capacity int) 
 	return id, nil
 }
 
-// LockLot, otopark satirini islem boyunca kilitler. Yoksa ErrLotNotFound doner.
-func LockLot(ctx context.Context, q Querier, lotID int64) error {
-	var id int64
-	err := q.QueryRow(ctx, `SELECT id FROM lots WHERE id = $1 FOR NO KEY UPDATE`, lotID).Scan(&id)
+// LockLot, otopark satirini islem boyunca kilitler ve kapasitesini doner.
+// Yoksa ErrLotNotFound doner.
+func LockLot(ctx context.Context, q Querier, lotID int64) (int, error) {
+	var capacity int
+	err := q.QueryRow(ctx, `SELECT capacity FROM lots WHERE id = $1 FOR NO KEY UPDATE`, lotID).Scan(&capacity)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrLotNotFound
+		return 0, ErrLotNotFound
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return nil
+	return capacity, nil
 }

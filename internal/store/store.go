@@ -15,7 +15,7 @@ var (
 	ErrLotNotFound = errors.New("otopark bulunamadi")
 	// ErrNoTariff: verilen an icin gecerli tarife surumu yok.
 	ErrNoTariff = errors.New("gecerli tarife surumu yok")
-	// ErrOpenSessionExists: ayni otoparkta plaka icin zaten acik oturum var.
+	// ErrOpenSessionExists: ayni otoparkta plaka ya da karisiklik sinifi icin zaten acik oturum var.
 	ErrOpenSessionExists = errors.New("plaka icin acik oturum var")
 	// ErrSessionNotOpen: oturum yok ya da zaten kapali.
 	ErrSessionNotOpen = errors.New("oturum acik degil")
@@ -43,7 +43,8 @@ func mapPgError(err error) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23505":
-			if pgErr.ConstraintName == "sessions_one_open_per_plate" {
+			if pgErr.ConstraintName == "sessions_one_open_per_plate" ||
+				pgErr.ConstraintName == "sessions_one_open_per_plate_key" {
 				return ErrOpenSessionExists
 			}
 			if pgErr.ConstraintName == "plate_events_camera_event_uniq" {

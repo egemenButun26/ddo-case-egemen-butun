@@ -15,6 +15,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"parkakil/internal/domain/plate"
 	"parkakil/internal/domain/session"
 	"parkakil/internal/domain/tariff"
 	"parkakil/internal/store"
@@ -178,13 +179,27 @@ func TestLockLotNotFound(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
 
-	if err := store.LockLot(ctx, pool, 1<<60); !errors.Is(err, store.ErrLotNotFound) {
+	if _, err := store.LockLot(ctx, pool, 1<<60); !errors.Is(err, store.ErrLotNotFound) {
 		t.Fatalf("olmayan lot icin hata = %v, beklenen ErrLotNotFound", err)
 	}
 
 	lotID := testdb.NewLot(t, pool, 10)
-	if err := store.LockLot(ctx, pool, lotID); err != nil {
+	if _, err := store.LockLot(ctx, pool, lotID); err != nil {
 		t.Fatalf("var olan lot kilitlenemedi: %v", err)
+	}
+}
+
+func TestLockLotKapasite(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	lotID := testdb.NewLot(t, pool, 7)
+
+	capacity, err := store.LockLot(ctx, pool, lotID)
+	if err != nil {
+		t.Fatalf("lot kilitlenemedi: %v", err)
+	}
+	if capacity != 7 {
+		t.Fatalf("kapasite = %d, beklenen 7", capacity)
 	}
 }
 
@@ -198,7 +213,7 @@ func TestLockLotKarsilikliDislar(t *testing.T) {
 		t.Fatalf("ilk islem acilamadi: %v", err)
 	}
 	defer func() { _ = tx1.Rollback(ctx) }()
-	if err := store.LockLot(ctx, tx1, lotID); err != nil {
+	if _, err := store.LockLot(ctx, tx1, lotID); err != nil {
 		t.Fatalf("ilk kilit alinamadi: %v", err)
 	}
 
@@ -212,7 +227,8 @@ func TestLockLotKarsilikliDislar(t *testing.T) {
 		}
 		defer func() { _ = tx2.Rollback(ctx) }()
 		close(basladi)
-		kazanildi <- store.LockLot(ctx, tx2, lotID)
+		_, err = store.LockLot(ctx, tx2, lotID)
+		kazanildi <- err
 	}()
 
 	<-basladi
@@ -422,6 +438,59 @@ func TestOpenSessionUniquePerPlate(t *testing.T) {
 	}
 }
 
+func TestOpenSessionUniqueConfusionKey(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	lotID, tarifeID := lotHazirla(t, pool)
+	digerLot, digerTarife := lotHazirla(t, pool)
+
+	t0 := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	giris1 := olayEkle(t, pool, lotID, session.Entry, t0)
+	if _, err := store.InsertSession(ctx, pool, lotID, "34ABU123", giris1, t0, tarifeID); err != nil {
+		t.Fatalf("ilk oturum acilamadi: %v", err)
+	}
+
+	giris2 := olayEkle(t, pool, lotID, session.Entry, t0.Add(time.Minute))
+	if _, err := store.InsertSession(ctx, pool, lotID, "34ABV123", giris2, t0.Add(time.Minute), tarifeID); !errors.Is(err, store.ErrOpenSessionExists) {
+		t.Fatalf("karisiklik varyanti hatasi = %v, beklenen ErrOpenSessionExists", err)
+	}
+
+	giris3 := olayEkle(t, pool, digerLot, session.Entry, t0)
+	if _, err := store.InsertSession(ctx, pool, digerLot, "34ABV123", giris3, t0, digerTarife); err != nil {
+		t.Fatalf("farkli lot'ta karisiklik varyanti reddedildi: %v", err)
+	}
+}
+
+func TestConfusionKeySQLGoAyni(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	const kaynak = "ODQILT7BSZGAEVHN"
+	const hedef = "0001111852643UMM"
+
+	kontrol := func(p string) {
+		t.Helper()
+		var sqlAnahtar string
+		if err := pool.QueryRow(ctx, `SELECT translate($1, $2, $3)`, p, kaynak, hedef).Scan(&sqlAnahtar); err != nil {
+			t.Fatalf("%q icin SQL anahtari okunamadi: %v", p, err)
+		}
+		if sqlAnahtar != plate.ConfusionKey(p) {
+			t.Fatalf("%q: SQL %q, Go %q", p, sqlAnahtar, plate.ConfusionKey(p))
+		}
+	}
+
+	plakalar := []string{
+		"34ABU123", "34ABV123", "34HHH123", "34MMM123", "34ABC123", "34A8C123",
+		"06IK01", "061K07", "34ODQ0", "34ILT71", "34B8", "34S5", "34Z2", "34G6",
+		"34A4", "34E3", "34UV", "34MNH", "XY9", "",
+	}
+	for _, p := range plakalar {
+		kontrol(p)
+	}
+	for _, r := range "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+		kontrol(string(r))
+	}
+}
+
 func TestCloseSession(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
@@ -535,57 +604,60 @@ func TestListOpenAndRecentClosed(t *testing.T) {
 	}
 }
 
-func TestListClosedCovering(t *testing.T) {
+func TestListClosedEndingAfter(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
 	lotID, tarifeID := lotHazirla(t, pool)
 
 	at := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
-	window := 5 * time.Minute
+	digerLot, digerTarife := lotHazirla(t, pool)
 
-	ekle := func(plaka string, entered, exited time.Time) int64 {
+	ekle := func(lot int64, tarife string, plaka string, entered, exited time.Time) int64 {
 		t.Helper()
-		giris := olayEkle(t, pool, lotID, session.Entry, entered)
-		id, err := store.InsertSession(ctx, pool, lotID, plaka, giris, entered, tarifeID)
+		giris := olayEkle(t, pool, lot, session.Entry, entered)
+		id, err := store.InsertSession(ctx, pool, lot, plaka, giris, entered, tarife)
 		if err != nil {
 			t.Fatalf("%s oturumu acilamadi: %v", plaka, err)
 		}
-		cikis := olayEkle(t, pool, lotID, session.Exit, exited)
+		cikis := olayEkle(t, pool, lot, session.Exit, exited)
 		if err := store.CloseSession(ctx, pool, id, cikis, exited, 100, nil); err != nil {
 			t.Fatalf("%s oturumu kapatilamadi: %v", plaka, err)
 		}
 		return id
 	}
 
-	idA := ekle("34AAA01", at.Add(-time.Hour), at.Add(30*time.Minute))
-	idB := ekle("34AAA02", at.Add(window), at.Add(30*time.Minute))
-	ekle("34AAA03", at.Add(window+time.Second), at.Add(30*time.Minute))
-	idD := ekle("34AAA04", at.Add(-time.Hour), at)
-	ekle("34AAA05", at.Add(-time.Hour), at.Add(-time.Second))
+	idA := ekle(lotID, tarifeID, "34AAA01", at.Add(-2*time.Hour), at.Add(2*time.Hour))
+	idB := ekle(lotID, tarifeID, "34AAA02", at.Add(-2*time.Hour), at)
+	ekle(lotID, tarifeID, "34AAA03", at.Add(-2*time.Hour), at.Add(-time.Microsecond))
+	idD := ekle(lotID, tarifeID, "34AAA04", at.Add(2*time.Hour), at.Add(3*time.Hour))
+	ekle(digerLot, digerTarife, "34AAA05", at.Add(-2*time.Hour), at.Add(2*time.Hour))
 
 	girisAcik := olayEkle(t, pool, lotID, session.Entry, at.Add(-time.Hour))
 	if _, err := store.InsertSession(ctx, pool, lotID, "34AAA06", girisAcik, at.Add(-time.Hour), tarifeID); err != nil {
 		t.Fatalf("acik oturum acilamadi: %v", err)
 	}
 
-	kapsayan, err := store.ListClosedCovering(ctx, pool, lotID, at, window)
+	sonuclar, err := store.ListClosedEndingAfter(ctx, pool, lotID, at)
 	if err != nil {
-		t.Fatalf("kapsayan kapali oturumlar okunamadi: %v", err)
+		t.Fatalf("sonrasinda kapanan kapali oturumlar okunamadi: %v", err)
 	}
-	if len(kapsayan) != 3 {
-		t.Fatalf("kapsayan oturum sayisi = %d, beklenen 3: %+v", len(kapsayan), kapsayan)
+	if len(sonuclar) != 3 {
+		t.Fatalf("oturum sayisi = %d, beklenen 3: %+v", len(sonuclar), sonuclar)
 	}
 	beklenen := []int64{idA, idB, idD}
-	for i, s := range kapsayan {
+	for i, s := range sonuclar {
 		if s.ID != beklenen[i] {
-			t.Fatalf("kapsayan oturum %d = %d, beklenen %d", i, s.ID, beklenen[i])
+			t.Fatalf("oturum %d = %d, beklenen %d", i, s.ID, beklenen[i])
 		}
 	}
-	if !kapsayan[0].EnteredAt.Equal(at.Add(-time.Hour)) || !kapsayan[0].ExitedAt.Equal(at.Add(30*time.Minute)) {
-		t.Fatalf("kapali oturum alanlari yanlis: %+v", kapsayan[0])
+	if !sonuclar[0].EnteredAt.Equal(at.Add(-2*time.Hour)) || !sonuclar[0].ExitedAt.Equal(at.Add(2*time.Hour)) {
+		t.Fatalf("kapali oturum alanlari yanlis: %+v", sonuclar[0])
 	}
-	if !kapsayan[1].EnteredAt.Equal(at.Add(window)) || !kapsayan[2].ExitedAt.Equal(at) {
-		t.Fatalf("sinir oturumlari yanlis: %+v / %+v", kapsayan[1], kapsayan[2])
+	if !sonuclar[1].ExitedAt.Equal(at) {
+		t.Fatalf("exited_at == at sinirda dahil degil: %v", sonuclar[1].ExitedAt)
+	}
+	if !sonuclar[2].EnteredAt.Equal(at.Add(2 * time.Hour)) {
+		t.Fatalf("sonraki oturum alanlari yanlis: %+v", sonuclar[2])
 	}
 }
 

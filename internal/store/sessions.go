@@ -25,7 +25,8 @@ type StoredSession struct {
 	AmountKurus     *tariff.Kurus
 }
 
-// InsertSession, acik oturum yazar. Ayni lot+plaka acik oturum varsa ErrOpenSessionExists.
+// InsertSession, acik oturum yazar. Ayni lot+plaka ya da karisiklik anahtari acik oturum varsa
+// ErrOpenSessionExists.
 func InsertSession(ctx context.Context, q Querier, lotID int64, plate string, entryEventID int64, enteredAt time.Time, tariffVersionID string) (int64, error) {
 	var id int64
 	err := q.QueryRow(ctx,
@@ -129,15 +130,14 @@ func ListRecentClosed(ctx context.Context, q Querier, lotID int64, around time.T
 	return out, nil
 }
 
-// ListClosedCovering, at anini (pencere payiyla) kapsayan kapali oturumlari doner.
-func ListClosedCovering(ctx context.Context, q Querier, lotID int64, at time.Time, window time.Duration) ([]session.ClosedSpan, error) {
+// ListClosedEndingAfter, at aninda ya da sonrasinda kapanan kapali oturumlari doner.
+func ListClosedEndingAfter(ctx context.Context, q Querier, lotID int64, at time.Time) ([]session.ClosedSpan, error) {
 	rows, err := q.Query(ctx,
 		`SELECT id, plate, entered_at, exited_at FROM sessions
 		 WHERE lot_id = $1 AND status = 'closed'
-		   AND entered_at - make_interval(secs => $3) <= $2
 		   AND exited_at >= $2
 		 ORDER BY id`,
-		lotID, at, window.Seconds(),
+		lotID, at,
 	)
 	if err != nil {
 		return nil, err

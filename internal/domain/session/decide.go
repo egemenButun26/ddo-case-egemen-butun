@@ -30,7 +30,7 @@ const (
 	ReasonAmbiguousExact         = "ambiguous_exact"
 	ReasonNoTariff               = "no_tariff"
 	ReasonLateEntry              = "late_entry"
-	ReasonEventConflict          = "event_conflict"
+	ReasonCapacityFull           = "capacity_full"
 	ReasonCloseFailed            = "close_failed"
 )
 
@@ -94,7 +94,10 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func DecideEntry(c Config, ev Event, open []OpenSession, closed []ClosedSpan) (Decision, error) {
+func DecideEntry(c Config, ev Event, capacity int, open []OpenSession, closed []ClosedSpan) (Decision, error) {
+	if capacity <= 0 {
+		return Decision{}, fmt.Errorf("gecersiz kapasite: %d", capacity)
+	}
 	if err := c.Validate(); err != nil {
 		return Decision{}, err
 	}
@@ -130,18 +133,36 @@ func DecideEntry(c Config, ev Event, open []OpenSession, closed []ClosedSpan) (D
 		}
 	}
 
-	kapsayan := closedCovering(closed, ev.CapturedAt, c.DuplicateWindow)
-	if len(kapsayan) > 0 {
-		res, err := plate.Match(p, closedSpanCandidates(kapsayan), c.Thresholds)
+	if len(closed) > 0 {
+		res, err := plate.Match(p, closedSpanCandidates(closed), c.Thresholds)
 		if err != nil {
 			return Decision{}, err
 		}
 		switch res.Decision {
 		case plate.DecisionExact, plate.DecisionAuto:
-			return Decision{Outcome: OutcomeDuplicateEntry, Plate: p, SessionID: candidateID(res.Best)}, nil
+			id := candidateID(res.Best)
+			best, ok := findClosed(closed, id)
+			if ok && ev.CapturedAt.Before(best.EnteredAt.Add(-c.DuplicateWindow)) {
+				return reviewDecision(ReasonLateEntry, p, &Review{Reason: ReasonLateEntry, SuggestedSessionID: id}), nil
+			}
+			return Decision{Outcome: OutcomeDuplicateEntry, Plate: p, SessionID: id}, nil
 		case plate.DecisionReview:
 			return reviewDecision(ReasonPossibleDuplicateEntry, p, reviewFromResult(ReasonPossibleDuplicateEntry, res)), nil
 		}
+	}
+
+	anahtar := plate.ConfusionKey(p)
+	for _, s := range open {
+		if plate.ConfusionKey(plate.Normalize(s.Plate)) == anahtar {
+			return reviewDecision(ReasonPossibleDuplicateEntry, p, &Review{
+				Reason:             ReasonPossibleDuplicateEntry,
+				SuggestedSessionID: s.ID,
+			}), nil
+		}
+	}
+
+	if len(open) >= capacity {
+		return reviewDecision(ReasonCapacityFull, p, &Review{Reason: ReasonCapacityFull}), nil
 	}
 
 	return Decision{Outcome: OutcomeOpened, Plate: p}, nil
@@ -265,17 +286,6 @@ func closedSpanCandidates(closed []ClosedSpan) []plate.Candidate {
 	return out
 }
 
-func closedCovering(closed []ClosedSpan, at time.Time, pencere time.Duration) []ClosedSpan {
-	out := make([]ClosedSpan, 0, len(closed))
-	for _, s := range closed {
-		if at.Before(s.EnteredAt.Add(-pencere)) || at.After(s.ExitedAt) {
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 func candidateID(c *plate.Candidate) int64 {
 	if c == nil {
 		return 0
@@ -294,6 +304,15 @@ func findOpen(open []OpenSession, id int64) (OpenSession, bool) {
 		}
 	}
 	return OpenSession{}, false
+}
+
+func findClosed(closed []ClosedSpan, id int64) (ClosedSpan, bool) {
+	for _, s := range closed {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return ClosedSpan{}, false
 }
 
 func closedWithin(closed []ClosedSession, at time.Time, pencere time.Duration) []ClosedSession {
